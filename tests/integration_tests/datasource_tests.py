@@ -279,15 +279,10 @@ class TestDatasource(SupersetTestCase):
             sql="select {{ foo }} as intcol",
             template_params=json.dumps({"foo": "123"}),
         )
-        db.session.add(table)
-        db.session.commit()
-
-        table = self.get_table(name="dummy_sql_table_with_template_params")
-        url = f"/datasource/external_metadata/table/{table.id}/"
-        resp = self.get_json_resp(url)
-        assert {o.get("column_name") for o in resp} == {"intcol"}
-        db.session.delete(table)
-        db.session.commit()
+        with db_insert_temp_object(table, "table_name"):
+            url = f"/datasource/external_metadata/table/{table.id}/"
+            resp = self.get_json_resp(url)
+            assert {o.get("column_name") for o in resp} == {"intcol"}
 
     def test_external_metadata_for_malicious_virtual_table(self):
         self.login(ADMIN_USERNAME)
@@ -297,7 +292,7 @@ class TestDatasource(SupersetTestCase):
             schema=get_example_default_schema(),
             sql="delete table birth_names",
         )
-        with db_insert_temp_object(table):
+        with db_insert_temp_object(table, "table_name"):
             url = f"/datasource/external_metadata/table/{table.id}/"
             resp = self.get_json_resp(url)
             self.assertEqual(resp["error"], "Only `SELECT` statements are allowed")
@@ -311,7 +306,7 @@ class TestDatasource(SupersetTestCase):
             sql="select 123 as intcol, 'abc' as strcol;"
             "select 123 as intcol, 'abc' as strcol",
         )
-        with db_insert_temp_object(table):
+        with db_insert_temp_object(table, "table_name"):
             url = f"/datasource/external_metadata/table/{table.id}/"
             resp = self.get_json_resp(url)
             self.assertEqual(resp["error"], "Only single queries supported")

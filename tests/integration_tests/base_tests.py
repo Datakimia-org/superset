@@ -592,12 +592,29 @@ class SupersetTestCase(TestCase):
 
 
 @contextmanager
-def db_insert_temp_object(obj: DeclarativeMeta):
-    """Insert a temporary object in database; delete when done."""
+def db_insert_temp_object(obj: DeclarativeMeta, unique_attr: Optional[str] = None):
+    """
+    Insert a temporary object in database; delete when done.
+    Optionally will look at a unique key, and pre-delete if the object exists already
+    """
     try:
+        if unique_attr and hasattr(obj, unique_attr):
+            unique_value = getattr(obj, unique_attr)
+            existing_obj = (
+                db.session.query(obj.__class__)
+                .filter_by(**{unique_attr: unique_value})
+                .first()
+            )
+            if existing_obj:
+                db.session.delete(existing_obj)
+                db.session.commit()
         db.session.add(obj)
         db.session.commit()
+
         yield obj
+    except Exception as e:
+        raise e
+
     finally:
         db.session.delete(obj)
         db.session.commit()
