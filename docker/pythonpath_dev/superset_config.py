@@ -200,10 +200,10 @@ WTF_CSRF_TIME_LIMIT = 60 * 60 * 24 * 365
 
 ##############################################3end auth
 
-SUPERSET_LOAD_EXAMPLES="yes"
+### to do -  se puede borrar eso ?
 PREVIOUS_SECRET_KEY="4MCsZm1ciqjZ4347/jIrefw34vKOPZ37Rr9k2iguLd3OeeCiZ45aw5ha"
 SUPERSET_SECRET_KEY="+DLoS9mlyLGxgUIP5QcM1/8IxVB0AG4GCdhDD2uSaQZAgfxwaVL7uO7f"
-
+######
 
 
 ######
