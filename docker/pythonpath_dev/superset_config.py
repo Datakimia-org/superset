@@ -113,6 +113,7 @@ FEATURE_FLAGS = {
     "TAGGING_SYSTEM": True, 
     "THUMBNAILS": True,
     "THUMBNAILS_SQLA_LISTENERS": True,
+    "DASHBOARD_RBAC": True,
 
 }
 
