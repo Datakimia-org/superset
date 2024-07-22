@@ -150,7 +150,7 @@ AUTH_TYPE = AUTH_OAUTH
 ENABLE_PROXY_FIX = True
 AUTH_USER_REGISTRATION = True
 AUTH_USER_REGISTRATION_ROLE = "Gamma"
-AUTH_USER_REGISTRATION_ROLE_JMESPATH = "contains(['lautaro@datakimia.com', 'user2@domain.com'], email) && 'Admin' || 'Alpha'"
+AUTH_USER_REGISTRATION_ROLE_JMESPATH = "contains(['lautaro@datakimia.com', 'rory@datakimia.com'], email) && 'Admin' || 'Alpha'"
 AUTH_ROLES_MAPPING = {
 "superset_users": ["Gamma","Alpha"],
 "superset_admins": ["Admin"],
@@ -199,6 +199,7 @@ WTF_CSRF_EXEMPT_LIST = ["/login/google"]
 # A CSRF token that expires in 1 year 
 WTF_CSRF_TIME_LIMIT = 60 * 60 * 24 * 365
 
+DASHBOARD_RBAC = True
 ##############################################3end auth
 
 ### to do -  se puede borrar eso ?
