@@ -13,7 +13,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
-
+      - name: pull code
+        # TODO implement 
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.5.4
         with:
@@ -25,6 +26,7 @@ jobs:
           sudo bash -c '
             cd /home/clientx/superset
             export TAG=dev
+            docker compose -f docker-compose-image-tag.yml pull 
             docker compose -f docker-compose-image-tag.yml up -d --force-recreate
           '
           EOF
