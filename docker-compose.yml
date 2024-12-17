@@ -16,7 +16,7 @@
 #
 
 # -----------------------------------------------------------------------
-# We don't support docker-compose for production environments.
+# We don't support docker compose for production environments.
 # If you choose to use this type of deployment make sure to
 # create you own docker environment file (docker/.env) with your own
 # unique random secure passwords and SECRET_KEY.
@@ -38,13 +38,18 @@ x-common-build: &common-build
   target: dev
   cache_from:
     - apache/superset-cache:3.10-slim-bookworm
+  args:
+    DEV_MODE: "true"
+    INCLUDE_CHROMIUM: ${INCLUDE_CHROMIUM:-false}
+    INCLUDE_FIREFOX: ${INCLUDE_FIREFOX:-false}
+    BUILD_TRANSLATIONS: ${BUILD_TRANSLATIONS:-false}
 
 services:
   nginx:
     logging:
-      driver: gcplogs  
+      driver: gcplogs
       options:
-        labels: "superset_nginx"      
+        labels: "superset_nginx"
     image: nginx:latest
     container_name: superset_nginx
     restart: unless-stopped
@@ -56,9 +61,9 @@ services:
       - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
   redis:
     logging:
-      driver: gcplogs    
+      driver: gcplogs
       options:
-        labels: "superset_cache"        
+        labels: "superset_cache"
     image: redis:7
     container_name: superset_cache
     restart: unless-stopped
@@ -69,9 +74,9 @@ services:
 
   db:
     logging:
-      driver: gcplogs    
+      driver: gcplogs
       options:
-        labels: "superset_db"         
+        labels: "superset_db"
     env_file:
       - path: docker/.env # default
         required: true
@@ -88,9 +93,9 @@ services:
 
   superset:
     logging:
-      driver: gcplogs    
+      driver: gcplogs
       options:
-        labels: "superset_app"        
+        labels: "superset_app"
     env_file:
       - path: docker/.env # default
         required: true
@@ -113,9 +118,9 @@ services:
 
   superset-websocket:
     logging:
-      driver: gcplogs    
+      driver: gcplogs
       options:
-        labels: "superset_websocket"        
+        labels: "superset_websocket"
     container_name: superset_websocket
     build: ./superset-websocket
     ports:
@@ -140,7 +145,7 @@ services:
       - /home/superset-websocket/dist
 
       # Mounting a config file that contains a dummy secret required to boot up.
-      # do not use this docker-compose in production
+      # do not use this docker compose in production
       - ./docker/superset-websocket/config.json:/home/superset-websocket/config.json
     environment:
       - PORT=8080
@@ -150,9 +155,9 @@ services:
 
   superset-init:
     logging:
-      driver: gcplogs    
+      driver: gcplogs
       options:
-        labels: "superset_init"        
+        labels: "superset_init"
     build:
       <<: *common-build
     container_name: superset_init
@@ -172,13 +177,23 @@ services:
 
   superset-node:
     logging:
-      driver: gcplogs    
+      driver: gcplogs
       options:
-        labels: "superset_node"          
-    image: node:18
+        labels: "superset_node"
+    build:
+      context: .
+      target: superset-node
+      args:
+        # This prevents building the frontend bundle since we'll mount local folder
+        # and build it on startup while firing docker-frontend.sh in dev mode, where
+        # it'll mount and watch local files and rebuild as you update them
+        DEV_MODE: "true"
+        BUILD_TRANSLATIONS: ${BUILD_TRANSLATIONS:-false}
     environment:
       # set this to false if you have perf issues running the npm i; npm run dev in-docker
       # if you do so, you have to run this manually on the host, which should perform better!
+      BUILD_SUPERSET_FRONTEND_IN_DOCKER: true
+      NPM_RUN_PRUNE: false
       SCARF_ANALYTICS: "${SCARF_ANALYTICS:-}"
     container_name: superset_node
     command: ["/app/docker/docker-frontend.sh"]
@@ -192,9 +207,9 @@ services:
 
   superset-worker:
     logging:
-      driver: gcplogs    
+      driver: gcplogs
       options:
-        labels: "superset_worker"        
+        labels: "superset_worker"
     build:
       <<: *common-build
     container_name: superset_worker
@@ -220,9 +235,9 @@ services:
 
   superset-worker-beat:
     logging:
-      driver: gcplogs   
+      driver: gcplogs
       options:
-        labels: "superset_worker_beat"         
+        labels: "superset_worker_beat"
     build:
       <<: *common-build
     container_name: superset_worker_beat
@@ -241,9 +256,9 @@ services:
 
   superset-tests-worker:
     logging:
-      driver: gcplogs    
+      driver: gcplogs
       options:
-        labels: "superset_tests_worker"        
+        labels: "superset_tests_worker"
     build:
       <<: *common-build
     container_name: superset_tests_worker

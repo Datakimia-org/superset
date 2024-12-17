@@ -117,6 +117,20 @@ def test_histogram_with_groupby_and_cumulative_and_normalize():
 
 def test_histogram_with_non_numeric_column():
     try:
-        histogram(data, "b", ["group"], bins)
+        histogram(data, "group", None, bins)
     except ValueError as e:
-        assert str(e) == "The column 'b' must be numeric."
+        assert str(e) == "Column 'group' contains non-numeric values"
+
+
+def test_histogram_with_some_non_numeric_values():
+    data_with_non_numeric = DataFrame(
+        {
+            "group": ["A", "A", "B", "B", "A", "A", "B", "B", "A", "A"],
+            "a": [1, 2, 3, 4, 5, 6, 7, 8, 9, "10"],
+            "b": [1, 2, 3, 4, 5, 6, 7, 8, 9, "10"],
+        }
+    )
+    try:
+        histogram(data_with_non_numeric, "a", ["group"], bins)
+    except ValueError as e:
+        assert str(e) == "Column 'group' contains non-numeric values"

@@ -302,9 +302,11 @@ describe('RTL', () => {
     userEvent.click(bulkSelectButton);
 
     // Grab and click the "toggle all" checkbox to expose export button
-    const selectAllCheckbox = screen.getByRole('checkbox', {
-      name: /toggle all rows selected/i,
-    });
+    const selectAllCheckbox = screen
+      .getAllByRole('checkbox', {
+        name: '',
+      })
+      .find(checkbox => checkbox.getAttribute('name') === 'header-toggle-all');
     userEvent.click(selectAllCheckbox);
 
     // Grab and assert that export button is visible
@@ -338,13 +340,13 @@ describe('RTL', () => {
   it('renders an "Import Saved Query" tooltip under import button', async () => {
     const importButton = await screen.findByTestId('import-button');
     userEvent.hover(importButton);
+
     waitFor(() => {
-      expect(importButton).toHaveClass('ant-tooltip-open');
       screen.findByTestId('import-tooltip-test');
       const importTooltip = screen.getByRole('tooltip', {
         name: 'Import queries',
       });
-      expect(importTooltip).toBeInTheDocument();
+      expect(importTooltip).toBeVisible();
     });
   });
 

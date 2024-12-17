@@ -27,6 +27,7 @@ export default function buildQuery(formData: HistogramFormData) {
       ...baseQueryObject,
       columns: [...groupby, column],
       post_processing: [histogramOperator(formData, baseQueryObject)],
+      metrics: undefined,
     },
   ]);
 }

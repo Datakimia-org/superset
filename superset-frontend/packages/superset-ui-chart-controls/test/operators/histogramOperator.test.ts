@@ -17,7 +17,7 @@
  * under the License.
  */
 import { histogramOperator } from '@superset-ui/chart-controls';
-import { SqlaFormData } from '@superset-ui/core';
+import { SqlaFormData, VizType } from '@superset-ui/core';
 import { omit } from 'lodash';
 
 const formData: SqlaFormData = {
@@ -26,7 +26,7 @@ const formData: SqlaFormData = {
   cumulative: true,
   normalize: true,
   groupby: ['country', 'region'],
-  viz_type: 'histogram',
+  viz_type: VizType.LegacyHistogram,
   datasource: 'foo',
 };
 
@@ -35,6 +35,13 @@ test('matches formData', () => {
     operation: 'histogram',
     options: omit(formData, ['viz_type', 'datasource']),
   });
+});
+
+test('sets default groupby', () => {
+  expect(
+    histogramOperator({ ...formData, groupby: undefined }, {})?.options
+      ?.groupby,
+  ).toEqual([]);
 });
 
 test('defaults to 5 bins', () => {

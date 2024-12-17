@@ -115,12 +115,25 @@ DATA_CACHE_CONFIG = CACHE_CONFIG
 class CeleryConfig:
     broker_url = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_CELERY_DB}"
     result_backend = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_RESULTS_DB}"
-    imports = ("superset.sql_lab", "superset.tasks.scheduler", "superset.tasks.thumbnails", "superset.tasks.cache" )
+    imports = (
+        "superset.sql_lab",
+        "superset.tasks.scheduler",
+        "superset.tasks.thumbnails",
+        "superset.tasks.cache",
+    )
     task_annotations = {
-        "sql_lab.get_sql_results": {"rate_limit": "100/s"},
-        "email_reports.send": {"rate_limit": "1/s", "time_limit": 120, "soft_time_limit": 150},
-        "reports.scheduler": {"rate_limit": "1/s"},
-    }    
+        "sql_lab.get_sql_results": {
+            "rate_limit": "100/s"
+        },
+        "email_reports.send": {
+            "rate_limit": "1/s",
+            "time_limit": 120,
+            "soft_time_limit": 150
+        },
+        "reports.scheduler": {
+            "rate_limit": "1/s"
+        },
+    }
     worker_prefetch_multiplier = 1
     task_acks_late = False
     beat_schedule = {
@@ -138,11 +151,11 @@ class CeleryConfig:
 CELERY_CONFIG = CeleryConfig
 
 FEATURE_FLAGS = {
-    "ALERT_REPORTS": True, 
+    "ALERT_REPORTS": True,
     "KV_STORE": True,
-    "SCHEDULED_QUERIES": True,    
-    "EMBEDDED_SUPERSET": True, 
-    "TAGGING_SYSTEM": True, 
+    "SCHEDULED_QUERIES": True,
+    "EMBEDDED_SUPERSET": True,
+    "TAGGING_SYSTEM": True,
     "THUMBNAILS": True,
     "THUMBNAILS_SQLA_LISTENERS": True,
     "DASHBOARD_RBAC": True,
@@ -187,7 +200,7 @@ AUTH_TYPE = AUTH_OAUTH
 ENABLE_PROXY_FIX = True
 AUTH_USER_REGISTRATION = True
 AUTH_USER_REGISTRATION_ROLE = "Guest"
-#PUBLIC_ROLE_LIKE = "Alpha" 
+#PUBLIC_ROLE_LIKE = "Alpha"
 AUTH_USER_REGISTRATION_ROLE_JMESPATH = "contains(['lautaro@datakimia.com', 'tomas@datakimia.com'], email) && 'Admin' || 'Guest'"
 
 
@@ -256,16 +269,16 @@ CORS_OPTIONS = {   # Replace with your frontend domain(s)
     "resources": ["*"],
 }
 
-HTTP_HEADERS = {"X-Frame-Options": "ALLOWALL"} 
+HTTP_HEADERS = {"X-Frame-Options": "ALLOWALL"}
 FAB_ADD_SECURITY_API = True
 
-# Flask-WTF flag for CSRF 
+# Flask-WTF flag for CSRF
 WTF_CSRF_ENABLED = False
 
 # Add endpoints that need to be exempt from CSRF protection
 WTF_CSRF_EXEMPT_LIST = ["/login/google"]
 
-# A CSRF token that expires in 1 year 
+# A CSRF token that expires in 1 year
 WTF_CSRF_TIME_LIMIT = 60 * 60 * 24 * 365
 
 ##############################################3end auth
@@ -294,5 +307,3 @@ try:
     )
 except ImportError:
     logger.info("Using default Docker config...")
-
-

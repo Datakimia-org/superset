@@ -47,6 +47,11 @@ from superset.commands.database.ssh_tunnel.exceptions import (
     SSHTunnelMissingCredentials,
 )
 from superset.constants import PASSWORD_MASK
+from superset.databases.types import (  # pylint:disable=unused-import
+    EncryptedDict,  # noqa: F401
+    EncryptedField,
+    EncryptedString,  # noqa: F401
+)
 from superset.databases.utils import make_url_safe
 from superset.db_engine_specs import get_engine_spec
 from superset.exceptions import CertificateException, SupersetSecurityException
@@ -857,6 +862,7 @@ class ImportV1DatabaseSchema(Schema):
     allow_cvas = fields.Boolean()
     allow_dml = fields.Boolean(required=False)
     allow_csv_upload = fields.Boolean()
+    impersonate_user = fields.Boolean()
     extra = fields.Nested(ImportV1DatabaseExtraSchema)
     uuid = fields.UUID(required=True)
     version = fields.String(required=True)
@@ -940,20 +946,6 @@ class ImportV1DatabaseSchema(Schema):
         return
 
 
-class EncryptedField:  # pylint: disable=too-few-public-methods
-    """
-    A database field that should be stored in encrypted_extra.
-    """
-
-
-class EncryptedString(EncryptedField, fields.String):
-    pass
-
-
-class EncryptedDict(EncryptedField, fields.Dict):
-    pass
-
-
 def encrypted_field_properties(self, field: Any, **_) -> dict[str, Any]:  # type: ignore
     ret = {}
     if isinstance(field, EncryptedField):
@@ -983,6 +975,9 @@ class EngineInformationSchema(Schema):
         metadata={
             "description": "The database supports multiple catalogs in a single connection"
         }
+    )
+    supports_oauth2 = fields.Boolean(
+        metadata={"description": "The database supports OAuth2"}
     )
 
 
