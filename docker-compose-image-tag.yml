@@ -16,12 +16,12 @@
 #
 
 # -----------------------------------------------------------------------
-# We don't support docker compose for production environments.
+# We don't support docker-compose for production environments.
 # If you choose to use this type of deployment make sure to
 # create you own docker environment file (docker/.env) with your own
 # unique random secure passwords and SECRET_KEY.
 # -----------------------------------------------------------------------
-x-superset-image: &superset-image apachesuperset.docker.scarf.sh/apache/superset:${TAG:-latest}
+x-superset-image: &superset-image us-central1-docker.pkg.dev/client-x-429512/client-x-registry/superset:${TAG:-latest}
 x-superset-depends-on: &superset-depends-on
   - db
   - redis
