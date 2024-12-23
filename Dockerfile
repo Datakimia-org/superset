@@ -118,7 +118,7 @@ ENV PATH="/app/.venv/bin:${PATH}"
 
 # Install Playwright and optionally setup headless browsers
 ARG INCLUDE_CHROMIUM="true"
-ARG INCLUDE_FIREFOX="false"
+ARG INCLUDE_FIREFOX="true"
 RUN --mount=type=cache,target=/root/.cache/uv\
     if [ "$INCLUDE_CHROMIUM" = "true" ] || [ "$INCLUDE_FIREFOX" = "true" ]; then \
         uv pip install playwright && \
@@ -236,6 +236,53 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install .
 
 RUN python -m compileall /app/superset
+
+
+######################################################################
+# Added by Datakimia
+######################################################################
+RUN apt-get update -qq \
+    && apt-get install -yqq --no-install-recommends \
+        libnss3 \
+        libdbus-glib-1-2 \
+        libgtk-3-0 \
+        libx11-xcb1 \
+        libasound2 \
+        libxtst6 \
+        git \
+        pkg-config \
+        && rm -rf /var/lib/apt/lists/*
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install playwright
+RUN playwright install-deps
+RUN playwright install chromium
+
+# Install GeckoDriver WebDriver
+ARG GECKODRIVER_VERSION=v0.34.0 \
+    FIREFOX_VERSION=125.0.3
+
+RUN apt-get update -qq \
+    && apt-get install -yqq --no-install-recommends wget bzip2 \
+    && wget -q https://github.com/mozilla/geckodriver/releases/download/${GECKODRIVER_VERSION}/geckodriver-${GECKODRIVER_VERSION}-linux64.tar.gz -O - | tar xfz - -C /usr/local/bin \
+    # Install Firefox
+    && wget -q https://download-installer.cdn.mozilla.net/pub/firefox/releases/${FIREFOX_VERSION}/linux-x86_64/en-US/firefox-${FIREFOX_VERSION}.tar.bz2 -O - | tar xfj - -C /opt \
+    && ln -s /opt/firefox/firefox /usr/local/bin/firefox \
+    && apt-get autoremove -yqq --purge wget bzip2 && rm -rf /var/[log,tmp]/* /tmp/* /var/lib/apt/lists/*
+# Cache everything for dev purposes...
+
+COPY --chown=superset:superset requirements/development.txt requirements/
+RUN --mount=type=cache,target=/root/.cache/pip \
+    apt-get update -qq && apt-get install -yqq --no-install-recommends \
+      build-essential \
+    && pip install -r requirements/development.txt \
+    && apt-get autoremove -yqq --purge build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+######################################################################
+# Added by Datakimia
+######################################################################
+
 
 USER superset
 
