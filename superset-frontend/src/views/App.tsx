@@ -99,7 +99,7 @@ const App = () => {
               // Add any additional data you need to send
             },
           },
-          process.env.CORS_FRONTEND_ORIGIN,
+          '*',
         );
       }
     }
