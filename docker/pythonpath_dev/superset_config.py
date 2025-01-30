@@ -80,6 +80,8 @@ AZURE_ENTRA_TENANT_ID = os.getenv("AZURE_ENTRA_TENANT_ID")
 
 CORS_FRONTEND_ORIGIN = os.getenv("CORS_FRONTEND_ORIGIN")
 
+PUBLIC_ACCESS_ROLE = os.getenv("PUBLIC_ACCESS_ROLE")
+
 
 # The SQLAlchemy connection string.
 SQLALCHEMY_DATABASE_URI = (
@@ -190,6 +192,8 @@ AUTH_USER_REGISTRATION_ROLE = "Guest"
 #PUBLIC_ROLE_LIKE = "Alpha" 
 AUTH_USER_REGISTRATION_ROLE_JMESPATH = "contains(['lautaro@datakimia.com', 'tomas@datakimia.com'], email) && 'Admin' || 'Guest'"
 
+if PUBLIC_ACCESS_ROLE:
+    PUBLIC_ROLE_LIKE = PUBLIC_ACCESS_ROLE
 
 GOOGLE_PROVIDER = {
     'name': 'google',
