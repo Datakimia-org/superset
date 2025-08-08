@@ -20,6 +20,7 @@ on:
             - January
             - Caliza
             - PayFacto
+            - Meshads
 
 jobs:
   execute:
@@ -98,7 +99,16 @@ jobs:
               echo "INFISICAL_PATH=/PayFacto/BI-Tool" >> $GITHUB_ENV
               echo "TAG=latest" >> $GITHUB_ENV     
               echo "GIT_BRANCH=master" >> $GITHUB_ENV                               
-              ;;              
+              ;;    
+            Meshads)
+              echo "Setting environment for Meshads"
+              echo "GCE_VM_NAME=meshads-instance"  >> $GITHUB_ENV 
+              echo "GCE_PROJECT=meshads"  >> $GITHUB_ENV              
+              echo "DIRECTORY_PATH=/home/meshads/superset" >> $GITHUB_ENV
+              echo "INFISICAL_PATH=/Meshads/BI-Tool" >> $GITHUB_ENV
+              echo "TAG=latest" >> $GITHUB_ENV     
+              echo "GIT_BRANCH=master" >> $GITHUB_ENV                               
+              ;;                           
             *)
               echo "Unknown environment"
               exit 1
@@ -117,23 +127,23 @@ jobs:
         with:
           export_default_credentials: true
 
-      - name: Set Script Permissions on GCE VM
+      - name: Install gcloud beta component
         run: |
-          gcloud compute ssh ${{env.GCE_VM_NAME}} --zone ${{env.GCE_ZONE}} --project ${{env.GCE_PROJECT}} --ssh-key-file=id_rsa --command "chmod +x $DIRECTORY_PATH/deploy_updated_version.sh"
+          gcloud components install beta --quiet
+
+#      - name: Set Script Permissions on GCE VM
+#        run: |
+#          gcloud beta compute ssh runner@${{env.GCE_VM_NAME}} --zone ${{env.GCE_ZONE}} --project ${{env.GCE_PROJECT}} --ssh-key-file=id_rsa --command "chmod +x $DIRECTORY_PATH/deploy_updated_version.sh"
+
+      - name: Start SSH Agent and Add Key
+        run: |
+          eval "$(ssh-agent -s)"
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" | ssh-add -
 
       - name: Run SSH Command on GCE VM
-        env:
-          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}  # Store your SSH private key in GitHub Secrets
-          PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }} # You should also store the public SSH key
         run: |
-          # Create the SSH key files
-          echo "$SSH_KEY" > id_rsa
-          echo "$PUBLIC_KEY" > id_rsa.pub
-          chmod 600 id_rsa
-          chmod 644 id_rsa.pub       
-
           # Add the VM's public IP to known hosts to ensure SSH connects seamlessly
           GCE_IP=$(gcloud compute instances describe ${{env.GCE_VM_NAME}} --zone ${{env.GCE_ZONE}} --project ${{env.GCE_PROJECT}} --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
 
           # Execute the script on the remote instance
-          gcloud compute ssh ${{env.GCE_VM_NAME}} --zone ${{env.GCE_ZONE}} --project ${{env.GCE_PROJECT}} --ssh-key-file=id_rsa --command "GIT_BRANCH=$GIT_BRANCH TAG=$TAG DIRECTORY_PATH='$DIRECTORY_PATH' INFISICAL_PATH='$INFISICAL_PATH' INFISICAL_PROJECT_ID='$INFISICAL_PROJECT_ID' INFISICAL_CLIENT_ID='$INFISICAL_CLIENT_ID' INFISICAL_CLIENT_SECRET='$INFISICAL_CLIENT_SECRET' bash $DIRECTORY_PATH/deploy_updated_version.sh" -- -v
+          gcloud beta compute ssh runner@${{env.GCE_VM_NAME}} --zone ${{env.GCE_ZONE}} --project ${{env.GCE_PROJECT}} --ssh-flag="-A" --command "echo 'Checking SSH agent on remote VM:'; echo SSH_AUTH_SOCK=$SSH_AUTH_SOCK; ssh-add -l; GIT_BRANCH=$GIT_BRANCH TAG=$TAG DIRECTORY_PATH='$DIRECTORY_PATH' INFISICAL_PATH='$INFISICAL_PATH' INFISICAL_PROJECT_ID='$INFISICAL_PROJECT_ID' INFISICAL_CLIENT_ID='$INFISICAL_CLIENT_ID' INFISICAL_CLIENT_SECRET='$INFISICAL_CLIENT_SECRET' bash $DIRECTORY_PATH/deploy_updated_version.sh" -- -v
