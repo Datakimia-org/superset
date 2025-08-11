@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { PureComponent, MouseEvent } from 'react';
+import { PureComponent, MouseEvent, createRef } from 'react';
 import {
   t,
   getNumberFormatter,
@@ -57,6 +57,39 @@ class BigNumberVis extends PureComponent<BigNumberVizProps> {
     subheaderFontSize: PROPORTION.SUBHEADER,
     timeRangeFixed: false,
   };
+
+  private rootRef = createRef<HTMLDivElement>();
+
+  private headerRef = createRef<HTMLDivElement>();
+
+  state = {
+    isVisible: false,
+  };
+
+  observer?: IntersectionObserver;
+
+  componentDidMount() {
+    this.observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          // Esperar un frame antes de calcular
+          requestAnimationFrame(() => {
+            this.setState({ isVisible: true });
+          });
+        } else {
+          this.setState({ isVisible: false });
+        }
+      },
+      { threshold: 0.1 },
+    );
+    if (this.rootRef.current) {
+      this.observer.observe(this.rootRef.current);
+    }
+  }
+
+  componentWillUnmount() {
+    this.observer?.disconnect();
+  }
 
   getClassName() {
     const { className, showTrendLine, bigNumberFallback } = this.props;
@@ -128,9 +161,15 @@ class BigNumberVis extends PureComponent<BigNumberVizProps> {
     );
   }
 
-  renderHeader(maxHeight: number) {
-    const { bigNumber, headerFormatter, width, colorThresholdFormatters } =
-      this.props;
+  renderHeader() {
+    if (!this.state.isVisible) return null;
+    const {
+      bigNumber,
+      headerFormatter,
+      width,
+      colorThresholdFormatters,
+      headerFontSize,
+    } = this.props;
     // @ts-ignore
     const text = bigNumber === null ? t('No data') : headerFormatter(bigNumber);
 
@@ -154,6 +193,9 @@ class BigNumberVis extends PureComponent<BigNumberVizProps> {
 
     const container = this.createTemporaryContainer();
     document.body.append(container);
+
+    const wrapperHeight = this.headerRef.current?.offsetHeight ?? 60;
+    const maxHeight = wrapperHeight * headerFontSize;
     const fontSize = computeMaxFontSize({
       text,
       maxWidth: width - 8, // Decrease 8px for more precise font size
@@ -172,6 +214,7 @@ class BigNumberVis extends PureComponent<BigNumberVizProps> {
 
     return (
       <div
+        ref={this.headerRef}
         className="header-line"
         style={{
           fontSize,
@@ -277,7 +320,7 @@ class BigNumberVis extends PureComponent<BigNumberVizProps> {
       showTrendLine,
       height,
       kickerFontSize,
-      headerFontSize,
+      // headerFontSize,
       subheaderFontSize,
     } = this.props;
     const className = this.getClassName();
@@ -295,9 +338,7 @@ class BigNumberVis extends PureComponent<BigNumberVizProps> {
                 (kickerFontSize || 0) * (1 - PROPORTION.TRENDLINE) * height,
               ),
             )}
-            {this.renderHeader(
-              Math.ceil(headerFontSize * (1 - PROPORTION.TRENDLINE) * height),
-            )}
+            {this.renderHeader()}
             {this.renderSubheader(
               Math.ceil(
                 subheaderFontSize * (1 - PROPORTION.TRENDLINE) * height,
@@ -310,10 +351,10 @@ class BigNumberVis extends PureComponent<BigNumberVizProps> {
     }
 
     return (
-      <div className={className} style={{ height }}>
+      <div ref={this.rootRef} className={className} style={{ height }}>
         {this.renderFallbackWarning()}
         {this.renderKicker((kickerFontSize || 0) * height)}
-        {this.renderHeader(Math.ceil(headerFontSize * height))}
+        {this.renderHeader()}
         {this.renderSubheader(Math.ceil(subheaderFontSize * height))}
       </div>
     );
