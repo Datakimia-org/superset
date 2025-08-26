@@ -218,24 +218,28 @@ GOOGLE_PROVIDER = {
 if DOMAIN_WHITELIST:
     GOOGLE_PROVIDER['whitelist'] = DOMAIN_WHITELIST
 
-AZURE_PROVIDER =     {
-        'name': 'azure',
-        'icon': 'fa-windows',
-        'token_key': 'access_token',
-        'remote_app': {
-            'client_id': AZURE_ENTRA_CLIENT_ID,
-            'client_secret': AZURE_ENTRA_CLIENT_SECRET,
-            'api_base_url': f'https://login.microsoftonline.com/{AZURE_ENTRA_TENANT_ID}/oauth2',
-            'client_kwargs': {
-                'scope': 'openid email profile',
-                'resource': AZURE_ENTRA_CLIENT_ID,
-            },
-            'request_token_url': None,
-            'access_token_url': f'https://login.microsoftonline.com/{AZURE_ENTRA_TENANT_ID}/oauth2/token',
-            'authorize_url': f'https://login.microsoftonline.com/{AZURE_ENTRA_TENANT_ID}/oauth2/authorize',
-            'jwks_uri': f'https://login.microsoftonline.com/{AZURE_ENTRA_TENANT_ID}/discovery/v2.0/keys',
-        }
+AZURE_PROVIDER = {
+    'name': 'azure',
+    'icon': 'fa-windows',
+    'token_key': 'access_token',
+    'remote_app': {
+        'client_id': AZURE_ENTRA_CLIENT_ID,          # Application (client) ID
+        'client_secret': AZURE_ENTRA_CLIENT_SECRET,  # Secret for confidential client flow
+        # v2.0 API base, tenant defined by AZURE_ENTRA_TENANT_ID (e.g. 'common')
+        'api_base_url': f'https://login.microsoftonline.com/{AZURE_ENTRA_TENANT_ID}/oauth2/v2.0',
+        'client_kwargs': {
+            # v2.0 requires scopes, not 'resource'
+            'scope': 'openid email profile offline_access',
+        },
+        'request_token_url': None,
+        # Token endpoint (v2.0)
+        'access_token_url': f'https://login.microsoftonline.com/{AZURE_ENTRA_TENANT_ID}/oauth2/v2.0/token',
+        # Authorize endpoint (v2.0)
+        'authorize_url': f'https://login.microsoftonline.com/{AZURE_ENTRA_TENANT_ID}/oauth2/v2.0/authorize',
+        # JWKS from the same tenant and version (v2.0)
+        'jwks_uri': f'https://login.microsoftonline.com/{AZURE_ENTRA_TENANT_ID}/discovery/v2.0/keys',
     }
+}
 
 if DOMAIN_WHITELIST:
     AZURE_PROVIDER['whitelist'] = DOMAIN_WHITELIST
