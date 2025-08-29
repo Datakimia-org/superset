@@ -58,6 +58,8 @@ EXAMPLES_DB = os.getenv("EXAMPLES_DB")
 
 COLOR_SCHEMES = os.getenv("COLOR_SCHEMES")
 
+WEBDRIVER_BASEURL = os.getenv("WEBDRIVER_BASEURL")
+
 # Read the environment variable
 oauth2_providers = os.getenv('OAUTH2_PROVIDERS')
 
@@ -168,7 +170,7 @@ THUMBNAIL_CACHE_CONFIG: CacheConfig = {
     'CACHE_TYPE': 'redis',
     'CACHE_DEFAULT_TIMEOUT': 24*60*60*7,
     'CACHE_KEY_PREFIX': 'thumbnail_',
-    'CACHE_REDIS_URL': 'redis://superset_cache:6379/1'
+    'CACHE_REDIS_URL': f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_RESULTS_DB}"
 }
 SCREENSHOT_LOCATE_WAIT=int(timedelta(seconds=120).total_seconds())
 
@@ -176,7 +178,6 @@ FAB_API_MAX_PAGE_SIZE = 500
 
 
 ALERT_REPORTS_NOTIFICATION_DRY_RUN = True
-WEBDRIVER_BASEURL = "http://superset_app:8088/"
 # The base URL for the email report hyperlinks.
 WEBDRIVER_BASEURL_USER_FRIENDLY = WEBDRIVER_BASEURL
 
@@ -326,4 +327,3 @@ try:
     )
 except ImportError:
     logger.info("Using default Docker config...")
-
