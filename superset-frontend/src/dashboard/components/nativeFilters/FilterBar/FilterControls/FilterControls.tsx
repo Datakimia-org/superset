@@ -220,7 +220,9 @@ const FilterControls: FC<FilterControlsProps> = ({
   );
 
   const items = useMemo(() => {
-    const crossFilters = selectedCrossFilters.map(c => ({
+    // DP-667: Cross filters are not being listened to and won't be displayed in FilterControl
+    // https://jira-datakimia.atlassian.net/browse/DP-667
+    /* const crossFilters = selectedCrossFilters.map(c => ({
       // a combination of filter name and chart id to account
       // for multiple cross filters from the same chart in the future
       id: `${c.name}${c.emitterId}`,
@@ -229,7 +231,7 @@ const FilterControls: FC<FilterControlsProps> = ({
         FilterBarOrientation.Horizontal,
         selectedCrossFilters.at(-1),
       ),
-    }));
+    })); */
     const nativeFiltersInScope = filtersInScope.map((filter, index) => ({
       id: filter.id,
       element: (
@@ -243,8 +245,8 @@ const FilterControls: FC<FilterControlsProps> = ({
         </div>
       ),
     }));
-    return [...crossFilters, ...nativeFiltersInScope];
-  }, [filtersInScope, renderer, rendererCrossFilter, selectedCrossFilters]);
+    return [...nativeFiltersInScope];
+  }, [filtersInScope, renderer]);
 
   const renderHorizontalContent = () => (
     <div
@@ -330,7 +332,6 @@ const FilterControls: FC<FilterControlsProps> = ({
       popoverRef?.current?.open();
     }
   }, [outlinedFilterId, lastUpdated, popoverRef, overflowedIds]);
-
   return (
     <>
       {portalNodes

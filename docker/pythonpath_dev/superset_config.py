@@ -132,6 +132,7 @@ class CeleryConfig:
         "email_reports.send": {"rate_limit": "1/s", "time_limit": 120, "soft_time_limit": 150},
         "reports.scheduler": {"rate_limit": "1/s"},
     }    
+    worker_max_tasks_per_child = 10    
     worker_prefetch_multiplier = 1
     task_acks_late = False
     beat_schedule = {
