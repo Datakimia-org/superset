@@ -8,6 +8,7 @@ on:
       - dev
       - demo
       - upgrade
+      - 'ephemeral/**'
   # Optionally allow manual triggers
   workflow_dispatch:
 
@@ -50,6 +51,7 @@ jobs:
       - name: Determine Image Tag
         id: tag
         run: |
+          echo "Checking  branch ${GITHUB_REF#refs/heads/}"
           if [[ "${GITHUB_REF##*/}" == "master" ]]; then
             echo "IMAGE_PERMANENT_TAG=latest" >> $GITHUB_ENV
           elif [[ "${GITHUB_REF##*/}" == "dev" ]]; then
@@ -58,6 +60,10 @@ jobs:
             echo "IMAGE_PERMANENT_TAG=demo" >> $GITHUB_ENV  
           elif [[ "${GITHUB_REF##*/}" == "upgrade" ]]; then
             echo "IMAGE_PERMANENT_TAG=upgrade" >> $GITHUB_ENV              
+          elif [[ "${GITHUB_REF#refs/heads/}" =~ ^ephemeral/ ]]; then
+            echo "IMAGE_PERMANENT_TAG=ephemeral-${GITHUB_REF##*/}" >> $GITHUB_ENV
+          else
+            echo "No condition met for branch ${GITHUB_REF##*/}"
           fi
 
       - name: Build Superset images
