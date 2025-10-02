@@ -160,7 +160,10 @@ FEATURE_FLAGS = {
     "DASHBOARD_RBAC": True,
     "ENABLE_TEMPLATE_PROCESSING": True,
     "DASHBOARD_VIRTUALIZATION": False,
-    "HORIZONTAL_FILTER_BAR": True
+    "HORIZONTAL_FILTER_BAR": True,
+    "ENABLE_JAVASCRIPT_CONTROLS":True,
+    "HTML_SANITIZATION": False,
+    "TALISMAN_ENABLED": False,
 }
 
 
@@ -198,7 +201,7 @@ AUTH_TYPE = AUTH_OAUTH
 PUBLIC_ROLE_LIKE= 'Datakimia_Public'
 ENABLE_PROXY_FIX = True
 AUTH_USER_REGISTRATION = True
-AUTH_USER_REGISTRATION_ROLE_JMESPATH = "contains(['lautaro@datakimia.com', 'tomas@datakimia.com', 'juanm@datakimia.com', 'nadia@datakimia.com', 'luciano@datakimia.com'], email) && 'Admin' || 'Default'"
+AUTH_USER_REGISTRATION_ROLE_JMESPATH = "contains(['lautaro@datakimia.com', 'tomas@datakimia.com', 'juanm@datakimia.com', 'david.ramos@datakimia.com', 'luciano@datakimia.com'], email) && 'Admin' || 'Default'"
 
 GOOGLE_PROVIDER = {
     'name': 'google',
