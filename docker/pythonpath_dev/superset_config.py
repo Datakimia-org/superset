@@ -201,7 +201,7 @@ AUTH_TYPE = AUTH_OAUTH
 PUBLIC_ROLE_LIKE= 'Datakimia_Public'
 ENABLE_PROXY_FIX = True
 AUTH_USER_REGISTRATION = True
-AUTH_USER_REGISTRATION_ROLE_JMESPATH = "contains(email, '@datakimia.com') && 'Admin' || 'Default'"
+AUTH_USER_REGISTRATION_ROLE_JMESPATH = "ends_with(email, '@datakimia.com') && 'Admin' || 'Default'"
 
 GOOGLE_PROVIDER = {
     'name': 'google',
