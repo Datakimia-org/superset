@@ -42,6 +42,7 @@ logger = logging.getLogger()
 
 # 2 hours
 GUEST_TOKEN_JWT_EXP_SECONDS = 7200
+PREVIOUS_SECRET_KEY = os.getenv("PREVIOUS_SECRET_KEY", None)
 
 DATABASE_DIALECT = os.getenv("DATABASE_DIALECT")
 DATABASE_USER = os.getenv("DATABASE_USER")
