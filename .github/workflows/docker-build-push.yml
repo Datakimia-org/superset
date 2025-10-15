@@ -59,6 +59,8 @@ jobs:
             echo "IMAGE_PERMANENT_TAG=dev" >> $GITHUB_ENV
           elif [[ "${GITHUB_REF##*/}" == "demo" ]]; then
             echo "IMAGE_PERMANENT_TAG=demo" >> $GITHUB_ENV  
+          elif [[ "${GITHUB_REF##*/}" == "preprod" ]]; then
+            echo "IMAGE_PERMANENT_TAG=preprod" >> $GITHUB_ENV              
           elif [[ "${GITHUB_REF##*/}" == "upgrade" ]]; then
             echo "IMAGE_PERMANENT_TAG=upgrade" >> $GITHUB_ENV              
           elif [[ "${GITHUB_REF#refs/heads/}" =~ ^ephemeral/ ]]; then
