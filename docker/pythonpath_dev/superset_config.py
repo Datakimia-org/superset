@@ -42,6 +42,7 @@ logger = logging.getLogger()
 
 # 2 hours
 GUEST_TOKEN_JWT_EXP_SECONDS = 7200
+PREVIOUS_SECRET_KEY = os.getenv("PREVIOUS_SECRET_KEY", None)
 
 DATABASE_DIALECT = os.getenv("DATABASE_DIALECT")
 DATABASE_USER = os.getenv("DATABASE_USER")
@@ -201,7 +202,7 @@ AUTH_TYPE = AUTH_OAUTH
 PUBLIC_ROLE_LIKE= 'Datakimia_Public'
 ENABLE_PROXY_FIX = True
 AUTH_USER_REGISTRATION = True
-AUTH_USER_REGISTRATION_ROLE_JMESPATH = "contains(['lautaro@datakimia.com', 'tomas@datakimia.com', 'juanm@datakimia.com', 'david.ramos@datakimia.com', 'luciano@datakimia.com'], email) && 'Admin' || 'Default'"
+AUTH_USER_REGISTRATION_ROLE_JMESPATH = "ends_with(email, '@datakimia.com') && 'Admin' || 'Default'"
 
 GOOGLE_PROVIDER = {
     'name': 'google',
