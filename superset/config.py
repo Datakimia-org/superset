@@ -63,6 +63,7 @@ from superset.utils.core import is_test, NO_TIME_RANGE, parse_boolean_string
 from superset.utils.encrypt import SQLAlchemyUtilsAdapter
 from superset.utils.log import DBEventLogger
 from superset.utils.logging_configurator import DefaultLoggingConfigurator
+from superset.utils.gcp_logging_configurator import GCPLoggingConfigurator
 
 logger = logging.getLogger(__name__)
 
@@ -283,7 +284,8 @@ SHOW_STACKTRACE = False
 
 # Use all X-Forwarded headers when ENABLE_PROXY_FIX is True.
 # When proxying to a different port, set "x_port" to 0 to avoid downstream issues.
-ENABLE_PROXY_FIX = False
+# Enable PROXY_FIX to get real client IP when behind reverse proxy
+ENABLE_PROXY_FIX = True
 PROXY_FIX_CONFIG = {"x_for": 1, "x_proto": 1, "x_host": 1, "x_port": 1, "x_prefix": 1}
 
 # Configuration for scheduling queries from SQL Lab.
@@ -913,7 +915,8 @@ ADDITIONAL_MIDDLEWARE: list[Callable[..., Any]] = []
 # 2) https://docs.python.org/2/library/logging.config.html
 
 # Default configurator will consume the LOG_* settings below
-LOGGING_CONFIGURATOR = DefaultLoggingConfigurator()
+# Use GCPLoggingConfigurator for structured JSON logging compatible with GCP Logging
+LOGGING_CONFIGURATOR = GCPLoggingConfigurator(enable_console_handler=True)
 
 # Console Log Settings
 
