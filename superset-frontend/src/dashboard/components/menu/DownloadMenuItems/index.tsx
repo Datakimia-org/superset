@@ -69,6 +69,7 @@ const DownloadMenuItems = (props: DownloadMenuItemProps) => {
             text={pdfMenuItemTitle}
             dashboardTitle={dashboardTitle}
             logEvent={logEvent}
+            visible={false}
             {...rest}
           />
           <DownloadAsImage

@@ -27,11 +27,13 @@ export default function DownloadAsPdf({
   text,
   logEvent,
   dashboardTitle,
+  visible = true,
   ...rest
 }: {
   text: string;
   dashboardTitle: string;
   logEvent?: Function;
+  visible?: boolean;
 }) {
   const SCREENSHOT_NODE_SELECTOR = '.dashboard';
   const { addDangerToast } = useToasts();
@@ -44,6 +46,10 @@ export default function DownloadAsPdf({
     }
     logEvent?.(LOG_ACTIONS_DASHBOARD_DOWNLOAD_AS_PDF);
   };
+
+  if (!visible) {
+    return null;
+  }
 
   return (
     <Menu.Item key="download-pdf" {...rest}>
