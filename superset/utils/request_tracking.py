@@ -56,25 +56,7 @@ class RequestTrackingMiddleware:
             # Store in Flask's g object for access throughout the request
             flask.g.request_id = request_id
         
-        @self.app.before_request
-        def log_request_start() -> None:
-            """Log request start with request ID."""
-            import logging
-            logger = logging.getLogger(__name__)
-            
-            # Get real client IP (works with PROXY_FIX enabled)
-            client_ip = flask.request.environ.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip() or flask.request.remote_addr
-            
-            logger.info(
-                "Request started",
-                extra={
-                    "method": flask.request.method,
-                    "path": flask.request.path,
-                    "remote_addr": client_ip,
-                    "user_agent": flask.request.headers.get("User-Agent", ""),
-                    "forwarded_from": flask.request.remote_addr,
-                }
-            )
+        # Removed log_request_start - we only log at the end to avoid duplicate logs
         
         @self.app.after_request
         def add_request_id_header(response: flask.Response) -> flask.Response:
@@ -84,24 +66,62 @@ class RequestTrackingMiddleware:
         
         @self.app.after_request
         def log_request_end(response: flask.Response) -> flask.Response:
-            """Log request completion with timing and response status."""
+            """Log HTTP access in structured format (replaces Gunicorn access logs)."""
             import logging
+            import os
             import time
+            
+            # Optional: Filter out static asset requests to reduce log noise
+            # Set LOG_STATIC_ASSETS=false to disable static asset logging
+            log_static_assets = os.environ.get("LOG_STATIC_ASSETS", "true").lower() == "true"
+            
+            if not log_static_assets:
+                # Skip logging for static assets (JS, CSS, images, fonts, etc.)
+                path = flask.request.path.lower()
+                if any(path.startswith(prefix) for prefix in [
+                    "/static/",
+                    "/api/v1/assets/",
+                ]) or any(path.endswith(ext) for ext in [
+                    ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
+                    ".woff", ".woff2", ".ttf", ".eot", ".map"
+                ]):
+                    return response
             
             # Calculate request duration if start time is available
             duration_ms = None
+            duration_seconds = None
             if hasattr(flask.g, "request_start_time"):
                 duration_seconds = time.time() - flask.g.request_start_time
                 duration_ms = int(duration_seconds * 1000)
             
-            logger = logging.getLogger(__name__)
+            # Get response size
+            response_size = response.content_length
+            if response_size is None:
+                try:
+                    response_size = len(response.get_data())
+                except Exception:
+                    response_size = 0
+            
+            # Get real client IP (works with PROXY_FIX enabled)
+            client_ip = flask.request.environ.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip() or flask.request.remote_addr
+            
+            logger = logging.getLogger("superset.http.access")
+            
+            # Log HTTP access in structured format compatible with GCP Logs Explorer
+            # This replaces Gunicorn's plain text access logs
             logger.info(
-                "Request completed",
+                f"{flask.request.method} {flask.request.path} HTTP/1.1",
                 extra={
-                    "status_code": response.status_code,
-                    "method": flask.request.method,
-                    "path": flask.request.path,
+                    "http_status_code": response.status_code,
+                    "http_method": flask.request.method,
+                    "http_path": flask.request.path,
+                    "http_url": flask.request.url,
+                    "http_referer": flask.request.referrer,
+                    "http_user_agent": flask.request.headers.get("User-Agent", ""),
+                    "http_remote_addr": client_ip,
+                    "response_size_bytes": response_size,
                     "duration_ms": duration_ms,
+                    "duration_seconds": duration_seconds,
                 }
             )
             

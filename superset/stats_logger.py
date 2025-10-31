@@ -15,11 +15,43 @@
 # specific language governing permissions and limitations
 # under the License.
 import logging
+import os
+import sys
 from typing import Optional
 
 from colorama import Fore, Style
 
 logger = logging.getLogger(__name__)
+
+
+def should_use_colors() -> bool:
+    """
+    Determine if colors should be used in log output.
+    
+    For GCP logging, colors should be disabled since logs are parsed by GCP Logs Explorer.
+    Colors are disabled when:
+    - NO_COLOR environment variable is set
+    - Running in GCP environment (GCP_PROJECT or GOOGLE_CLOUD_PROJECT set)
+    - Output is not a TTY (e.g., redirected to file, pipe, or Docker/Kubernetes stdout)
+    - PYTHONUNBUFFERED is set (common in containerized environments)
+    """
+    # Always disable colors if NO_COLOR is set (standard convention)
+    if os.environ.get("NO_COLOR"):
+        return False
+    
+    # Always disable colors in GCP environment
+    if os.environ.get("GCP_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        return False
+    
+    # Disable colors if output is not a TTY (typical in containerized/cloud environments)
+    if not hasattr(sys.stdout, "isatty") or not sys.stdout.isatty():
+        return False
+    
+    # Disable colors in unbuffered mode (common in containers/logging systems)
+    if os.environ.get("PYTHONUNBUFFERED") == "1":
+        return False
+    
+    return True
 
 
 class BaseStatsLogger:
@@ -50,25 +82,32 @@ class BaseStatsLogger:
 
 
 class DummyStatsLogger(BaseStatsLogger):
+    def __init__(self, prefix: str = "superset") -> None:
+        super().__init__(prefix)
+        self._use_colors = should_use_colors()
+    
+    def _format_message(self, prefix: str, key: str, value: Optional[str] = None) -> str:
+        """Format log message with optional color codes."""
+        if value:
+            msg = f"[stats_logger] ({prefix}) {key} | {value}"
+        else:
+            msg = f"[stats_logger] ({prefix}) {key}"
+        
+        if self._use_colors:
+            return Fore.CYAN + msg + Style.RESET_ALL
+        return msg
+    
     def incr(self, key: str) -> None:
-        logger.debug(Fore.CYAN + "[stats_logger] (incr) " + key + Style.RESET_ALL)
+        logger.debug(self._format_message("incr", key))
 
     def decr(self, key: str) -> None:
-        logger.debug(Fore.CYAN + "[stats_logger] (decr) " + key + Style.RESET_ALL)
+        logger.debug(self._format_message("decr", key))
 
     def timing(self, key: str, value: float) -> None:
-        logger.debug(
-            Fore.CYAN + f"[stats_logger] (timing) {key} | {value} " + Style.RESET_ALL
-        )
+        logger.debug(self._format_message("timing", key, str(value)))
 
     def gauge(self, key: str, value: float) -> None:
-        logger.debug(
-            Fore.CYAN
-            + "[stats_logger] (gauge) "
-            + f"{key}"
-            + f"{value}"
-            + Style.RESET_ALL
-        )
+        logger.debug(self._format_message("gauge", key, str(value)))
 
 
 try:
