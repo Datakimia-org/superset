@@ -614,6 +614,10 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
         for middleware in self.config["ADDITIONAL_MIDDLEWARE"]:
             self.superset_app.wsgi_app = middleware(self.superset_app.wsgi_app)
 
+        # Add GCP request tracking for request correlation
+        from superset.utils.request_tracking import install_request_tracking
+        install_request_tracking(self.superset_app)
+
         # Flask-Compress
         Compress(self.superset_app)
 

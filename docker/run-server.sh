@@ -19,9 +19,21 @@
 #
 HYPHEN_SYMBOL='-'
 
+# Disable Gunicorn access logs when using GCP structured logging
+# Access logs will be handled by Flask middleware for JSON formatting and request_id correlation
+# If ACCESS_LOG_FILE is explicitly set, use it; otherwise disable access logs
+GUNICORN_ACCESS_LOG_ARGS=""
+if [ -n "${ACCESS_LOG_FILE:-}" ]; then
+    # ACCESS_LOG_FILE is explicitly set, use it
+    GUNICORN_ACCESS_LOG_ARGS="--access-logfile ${ACCESS_LOG_FILE}"
+else
+    # Disable access logs by redirecting to /dev/null (Gunicorn doesn't support --no-access-log)
+    GUNICORN_ACCESS_LOG_ARGS="--access-logfile /dev/null"
+fi
+
 gunicorn \
     --bind "${SUPERSET_BIND_ADDRESS:-0.0.0.0}:${SUPERSET_PORT:-8088}" \
-    --access-logfile "${ACCESS_LOG_FILE:-$HYPHEN_SYMBOL}" \
+    ${GUNICORN_ACCESS_LOG_ARGS} \
     --error-logfile "${ERROR_LOG_FILE:-$HYPHEN_SYMBOL}" \
     --workers ${SERVER_WORKER_AMOUNT:-1} \
     --worker-class ${SERVER_WORKER_CLASS:-gthread} \
