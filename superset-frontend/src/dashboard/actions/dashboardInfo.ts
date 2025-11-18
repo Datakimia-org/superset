@@ -47,12 +47,21 @@ export const saveChartConfiguration =
     globalChartConfiguration?: GlobalChartCrossFilterConfig;
   }) =>
   async (dispatch: Dispatch, getState: () => RootState) => {
+    const { id, metadata, dash_edit_perm } = getState().dashboardInfo;
+
+    // Skip saving if user doesn't have edit permissions (e.g., anonymous users)
+    if (!dash_edit_perm) {
+      console.log(
+        '[saveChartConfiguration] Skipping save - user lacks edit permissions (dash_edit_perm=false)',
+      );
+      return;
+    }
+
     dispatch({
       type: SAVE_CHART_CONFIG_BEGIN,
       chartConfiguration,
       globalChartConfiguration,
     });
-    const { id, metadata } = getState().dashboardInfo;
 
     // TODO extract this out when makeApi supports url parameters
     const updateDashboard = makeApi<

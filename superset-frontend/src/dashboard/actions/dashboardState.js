@@ -677,7 +677,17 @@ export function setDatasetsStatus(status) {
   };
 }
 
-const updateDashboardMetadata = async (id, metadata, dispatch) => {
+const updateDashboardMetadata = async (id, metadata, dispatch, getState) => {
+  const { dash_edit_perm } = getState().dashboardInfo;
+
+  // Skip saving if user doesn't have edit permissions (e.g., anonymous users)
+  if (!dash_edit_perm) {
+    console.log(
+      '[updateDashboardMetadata] Skipping save - user lacks edit permissions (dash_edit_perm=false)',
+    );
+    return;
+  }
+
   await SupersetClient.put({
     endpoint: `/api/v1/dashboard/${id}`,
     headers: { 'Content-Type': 'application/json' },
@@ -688,8 +698,16 @@ const updateDashboardMetadata = async (id, metadata, dispatch) => {
 
 export const updateDashboardLabelsColor = () => async (dispatch, getState) => {
   const {
-    dashboardInfo: { id, metadata },
+    dashboardInfo: { id, metadata, dash_edit_perm },
   } = getState();
+
+  // Skip updating if user doesn't have edit permissions (e.g., anonymous users)
+  if (!dash_edit_perm) {
+    console.log(
+      '[updateDashboardLabelsColor] Skipping update - user lacks edit permissions (dash_edit_perm=false)',
+    );
+    return;
+  }
   const categoricalSchemes = getCategoricalSchemeRegistry();
   const colorScheme = metadata?.color_scheme;
   const colorSchemeRegistry = categoricalSchemes.get(
@@ -736,7 +754,7 @@ export const updateDashboardLabelsColor = () => async (dispatch, getState) => {
       (colorScheme && (!colorSchemeRegistry || !isRegistrySynced)) ||
       !isMapSynced
     ) {
-      await updateDashboardMetadata(id, updatedMetadata, dispatch);
+      await updateDashboardMetadata(id, updatedMetadata, dispatch, getState);
     }
   } catch (error) {
     console.error('Failed to update dashboard color settings:', error);
