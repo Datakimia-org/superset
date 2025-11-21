@@ -322,6 +322,9 @@ WTF_CSRF_TIME_LIMIT = 60 * 60 * 24 * 365
 
 EXTRA_CATEGORICAL_COLOR_SCHEMES = json.loads(COLOR_SCHEMES)
 
+# Increase dashboard layout JSON size limit
+# Fix Your dashboard is too large. Please reduce its size before saving it [https://jira-datakimia.atlassian.net/browse/DP-832]
+SUPERSET_DASHBOARD_POSITION_DATA_LIMIT = 131072  # 128 KB, adjust as needed
 
 #
 # Optionally import superset_config_docker.py (which will have been included on
