@@ -64,20 +64,17 @@ export default function downloadAsPdf(
         scale: 2,
         backgroundColor: supersetTheme.colors.grayscale.light4,
         useCORS: true,
-        allowTaint: true, // Allow tainted canvas for Mapbox
+        allowTaint: true,
         logging: false,
       },
       excludeClassNames: ['header-controls', 'mapboxgl-control-container'],
     };
     return customDomToPdf(elementToPrint, options)
       .then(() => {
-        // PDF generated successfully
+        // nothing to be done
       })
       .catch((e: Error) => {
         logging.error('PDF generation failed', e);
-        addWarningToast(
-          t('PDF download failed, please refresh and try again.'),
-        );
       });
   };
 }
