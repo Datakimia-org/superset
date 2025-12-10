@@ -101,6 +101,18 @@ SQLALCHEMY_EXAMPLES_URI = (
     f"{EXAMPLES_HOST}:{EXAMPLES_PORT}/{EXAMPLES_DB}"
 )
 
+# SQLAlchemy connection pool optimization for Superset's metadata database
+# This improves database connection reuse and reduces connection overhead
+# Note: This only affects Superset's own metadata database, not user databases like BigQuery
+# For user databases, configure pool settings in the database's "extra" field as "engine_params"
+SQLALCHEMY_ENGINE_OPTIONS = {
+    "pool_size": 10,
+    "max_overflow": 20,
+    "pool_recycle": 3600,
+    "pool_pre_ping": True,
+    "connect_args": {"connect_timeout": 10}
+}
+
 REDIS_HOST = os.getenv("REDIS_HOST", "superset_cache")
 REDIS_PORT = os.getenv("REDIS_PORT", "6379")
 REDIS_CELERY_DB = os.getenv("REDIS_CELERY_DB", "0")
@@ -339,3 +351,14 @@ try:
     )
 except ImportError:
     logger.info("Using default Docker config...")
+
+# Import and apply BigQuery caching patch
+# The patch module will be loaded automatically when imported
+try:
+    import bigquery_cache_patch
+    logger.info("BigQuery caching optimization loaded")
+except ImportError:
+    # Patch module not found, continue without it
+    logger.warning("Warning: bigquery_cache_patch module not found, BigQuery caching disabled")
+except Exception as e:
+    logger.warning(f"Warning: Could not load BigQuery cache patch: {e}")
