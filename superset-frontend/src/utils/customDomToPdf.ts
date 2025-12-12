@@ -320,11 +320,13 @@ export default function customDomToPdf(
                 let yOffset;
 
                 if (imgAspectRatio > pdfAspectRatio) {
+                  // Wider than tall - use full width
                   finalWidth = pdfWidth;
                   finalHeight = pdfWidth / imgAspectRatio;
                   xOffset = margin;
-                  yOffset = margin + (pdfHeight - finalHeight) / 2;
+                  yOffset = margin;
                 } else {
+                  // Taller than wide - center horizontally but keep at top
                   finalHeight = pdfHeight;
                   finalWidth = pdfHeight * imgAspectRatio;
                   xOffset = margin + (pdfWidth - finalWidth) / 2;
