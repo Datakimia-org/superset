@@ -35,6 +35,7 @@ interface ActionButtonsProps {
   width?: number;
   onApply: () => void;
   onClearAll: () => void;
+  onHistory?: () => void;
   dataMaskSelected: DataMaskState;
   dataMaskApplied: DataMaskStateWithId;
   isApplyDisabled: boolean;
@@ -84,6 +85,10 @@ const verticalStyle = (theme: SupersetTheme, width: number) => css`
   & > .filter-apply-button {
     margin-bottom: ${theme.gridUnit * 3}px;
   }
+
+  & > .filter-history-button {
+    margin-bottom: ${theme.gridUnit * 3}px;
+  }
 `;
 
 const horizontalStyle = (theme: SupersetTheme) => css`
@@ -106,6 +111,7 @@ const ActionButtons = ({
   width = OPEN_FILTER_BAR_WIDTH,
   onApply,
   onClearAll,
+  onHistory,
   dataMaskApplied,
   dataMaskSelected,
   isApplyDisabled,
@@ -140,6 +146,15 @@ const ActionButtons = ({
         {...getFilterBarTestId('apply-button')}
       >
         {isVertical ? t('Apply filters') : t('Apply')}
+      </Button>
+      <Button
+        buttonStyle="secondary"
+        buttonSize="small"
+        className="filter-history-button"
+        onClick={onHistory}
+        {...getFilterBarTestId('history-button')}
+      >
+        {t('History')}
       </Button>
       <Button
         disabled={!isClearAllEnabled}
