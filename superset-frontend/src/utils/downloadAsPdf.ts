@@ -57,7 +57,7 @@ export default function downloadAsPdf(
     }
 
     const options = {
-      margin: 10,
+      margin: 0,
       filename: `${generateFileStem(description)}.pdf`,
       image: { type: 'jpeg', quality: 1 },
       html2canvas: {

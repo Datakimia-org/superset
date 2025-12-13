@@ -7,7 +7,7 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
@@ -140,33 +140,75 @@ function calculatePageHeight(containerWidth: number, margin: number): number {
 }
 
 /**
- * Add page break logic to avoid splitting elements across pages
+ * MEJORA: Lógica inteligente de saltos de página.
+ * Busca elementos que crucen el límite de la página y añade espaciadores.
  */
-function addPageBreaks(element: Element, pageHeight: number): void {
-  const children = Array.from(element.children);
-  let currentPageHeight = 0;
+function addPageBreaks(
+  container: HTMLElement,
+  pageHeight: number,
+  topPadding = 32,
+): void {
+  // En Superset, los componentes principales suelen tener clases específicas.
+  // Intentamos seleccionar los contenedores de gráficos o filas.
+  // Si no encuentra clases específicas, usa los hijos directos.
+  let elements = Array.from(
+    container.querySelectorAll('.dashboard-component, .chart-container, .row'),
+  );
 
-  children.forEach((child, index) => {
-    const childElement = child as HTMLElement;
-    const childHeight = childElement.offsetHeight;
+  // Fallback: si no encuentra estructura de superset, usa hijos directos
+  if (elements.length === 0) {
+    elements = Array.from(container.children);
+  }
 
-    // Check if this element would overflow to next page
-    if (currentPageHeight + childHeight > pageHeight && currentPageHeight > 0) {
-      // Add padding div to push element to next page
+  // Obtenemos la posición del contenedor principal para cálculos relativos
+  const containerRect = container.getBoundingClientRect();
+
+  elements.forEach(child => {
+    const el = child as HTMLElement;
+
+    // IMPORTANTE: Llamar a getBoundingClientRect DENTRO del loop.
+    // Esto asegura que si empujamos un elemento anterior hacia abajo,
+    // las coordenadas del elemento actual se actualicen.
+    const rect = el.getBoundingClientRect();
+
+    // Altura del elemento
+    const { height } = rect;
+
+    // Posición relativa al inicio del documento PDF clonado
+    const relativeTop = rect.top - containerRect.top;
+    const relativeBottom = relativeTop + height;
+
+    // Calcular en qué "página" cae el inicio y el final del elemento
+    const startPage = Math.floor(relativeTop / pageHeight);
+    const endPage = Math.floor(relativeBottom / pageHeight);
+
+    // Lógica de decisión:
+    // 1. Si el elemento empieza en una página y termina en otra (startPage !== endPage)
+    // 2. Y el elemento NO es más grande que una página entera (height < pageHeight)
+    //    (Si es gigante, se cortará de todas formas, no tiene sentido empujarlo)
+    if (startPage !== endPage && height < pageHeight) {
+      // Calcular cuánto espacio queda en la página actual
+      const remainingSpaceOnPage = pageHeight - (relativeTop % pageHeight);
+
+      // Crear un espaciador invisible para empujar contenido a la siguiente página
       const pageBreak = document.createElement('div');
-      const remainingHeight = pageHeight - currentPageHeight;
-      pageBreak.style.height = `${remainingHeight}px`;
+      pageBreak.style.display = 'block';
+      pageBreak.style.height = `${remainingSpaceOnPage}px`;
       pageBreak.style.width = '100%';
-      pageBreak.className = 'custom-pdf-page-break';
+      // Clase para depuración si fuera necesario
+      pageBreak.className = 'custom-pdf-page-break-spacer';
 
-      element.insertBefore(pageBreak, childElement);
-      currentPageHeight = childHeight;
-    } else {
-      currentPageHeight += childHeight;
+      // Crear un espaciador para el padding-top de la nueva página
+      const pagePaddingTop = document.createElement('div');
+      pagePaddingTop.style.display = 'block';
+      pagePaddingTop.style.height = `${topPadding}px`;
+      pagePaddingTop.style.width = '100%';
+      pagePaddingTop.className = 'custom-pdf-page-padding-top';
 
-      // Reset height counter when we reach page limit
-      if (currentPageHeight >= pageHeight) {
-        currentPageHeight = 0;
+      // Insertar los espaciadores ANTES del elemento que se iba a cortar
+      if (el.parentNode) {
+        el.parentNode.insertBefore(pageBreak, el);
+        el.parentNode.insertBefore(pagePaddingTop, el);
       }
     }
   });
@@ -200,30 +242,63 @@ export default function customDomToPdf(
       overlay.style.width = '100vw';
       overlay.style.height = '100vh';
       overlay.style.zIndex = '1000';
-      overlay.style.opacity = '0';
+      overlay.style.opacity = '0'; // Keep hidden but rendered
       overlay.style.pointerEvents = 'none';
       overlay.style.overflow = 'hidden';
+      // Fondo blanco explícito para evitar problemas de transparencia
+      overlay.style.backgroundColor = '#ffffff';
 
       // Clone the element
       const clonedElement = cloneNode(elementToPrint) as Element;
       const clonedElementStyled = clonedElement as HTMLElement;
 
-      // Apply styling to match original
+      // Apply styling to match original but allow full expansion
       clonedElementStyled.style.width = `${elementToPrint.scrollWidth}px`;
       clonedElementStyled.style.height = 'auto';
       clonedElementStyled.style.maxWidth = 'none';
       clonedElementStyled.style.maxHeight = 'none';
       clonedElementStyled.style.overflow = 'visible';
+      // Reset margin and padding from original element
+      clonedElementStyled.style.margin = '0';
+      clonedElementStyled.style.padding = '0';
+      // Use box-sizing to include padding in width calculation
+      clonedElementStyled.style.boxSizing = 'border-box';
 
-      overlay.appendChild(clonedElementStyled);
+      // Define background color
+      const bgcolor = html2canvas.backgroundColor || '#ffffff';
+
+      // Create wrapper with only horizontal padding (left/right)
+      // Vertical padding is added via spacer divs to avoid issues with page breaks
+      const wrapper = document.createElement('div');
+      wrapper.style.paddingLeft = '32px';
+      wrapper.style.paddingRight = '32px';
+      wrapper.style.backgroundColor = bgcolor;
+      wrapper.style.boxSizing = 'border-box';
+
+      // Add top spacer
+      const topSpacer = document.createElement('div');
+      topSpacer.style.height = '32px';
+      topSpacer.style.backgroundColor = bgcolor;
+      wrapper.appendChild(topSpacer);
+
+      // Add content
+      wrapper.appendChild(clonedElementStyled);
+
+      // Add bottom spacer
+      const bottomSpacer = document.createElement('div');
+      bottomSpacer.style.height = '32px';
+      bottomSpacer.style.backgroundColor = bgcolor;
+      wrapper.appendChild(bottomSpacer);
+
+      overlay.appendChild(wrapper);
       document.body.appendChild(overlay);
 
-      // Calculate page dimensions
-      const containerWidth = elementToPrint.scrollWidth;
+      // Calculate page dimensions based on the ACTUAL width of the cloned content
+      const containerWidth = wrapper.getBoundingClientRect().width;
       const pageHeight = calculatePageHeight(containerWidth, margin);
 
-      // Add page breaks for better pagination
-      addPageBreaks(clonedElementStyled, pageHeight);
+      // Add page breaks using the smart logic (with 32px top padding for each new page)
+      addPageBreaks(wrapper, pageHeight, 32);
 
       // Create filter function
       const filter = (node: Element) => {
@@ -243,22 +318,21 @@ export default function customDomToPdf(
         return true;
       };
 
-      const bgcolor = html2canvas.backgroundColor || '#ffffff';
-      const scale = html2canvas.scale || 1;
+      const scale = html2canvas.scale || 1; // 2 da mejor calidad pero es más lento
 
       // Generate the full canvas first
       domToImage
-        .toCanvas(clonedElementStyled, {
+        .toCanvas(wrapper, {
           bgcolor,
           filter,
           quality: image.quality,
           width: containerWidth * scale,
-          height: clonedElementStyled.scrollHeight * scale,
+          height: wrapper.scrollHeight * scale,
           style: {
             transform: `scale(${scale})`,
             transformOrigin: 'top left',
             width: `${containerWidth}px`,
-            height: `${clonedElementStyled.scrollHeight}px`,
+            height: `${wrapper.scrollHeight}px`,
           },
         })
         .then((canvas: HTMLCanvasElement) => {
@@ -274,33 +348,40 @@ export default function customDomToPdf(
 
             for (let page = 0; page < numPages; page += 1) {
               const yOffset = page * scaledPageHeight;
-              const currentPageHeight = Math.min(
-                scaledPageHeight,
-                fullHeight - yOffset,
-              );
+
+              // Ajuste fino para la última página
+              let renderHeight = scaledPageHeight;
+              if (page === numPages - 1) {
+                const remainingHeight = fullHeight - yOffset;
+                // Si el remanente es muy pequeño, a veces es borde blanco, opcionalmente ignorar
+                renderHeight = remainingHeight;
+              }
 
               // Create canvas for this page
               const pageCanvas = document.createElement('canvas');
               pageCanvas.width = canvas.width;
-              pageCanvas.height = currentPageHeight;
+              pageCanvas.height = renderHeight;
 
               const pageCtx = pageCanvas.getContext('2d');
               if (!pageCtx) continue;
 
               // Copy the relevant portion of the full canvas
+              pageCtx.fillStyle = '#ffffff';
+              pageCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+
               pageCtx.drawImage(
                 canvas,
                 0,
                 yOffset,
                 canvas.width,
-                currentPageHeight,
+                renderHeight,
                 0,
                 0,
                 canvas.width,
-                currentPageHeight,
+                renderHeight,
               );
 
-              // Skip blank pages
+              // Skip blank pages logic
               if (!isCanvasBlank(pageCanvas)) {
                 // Add new page if not the first
                 if (pageAdded) {
@@ -319,6 +400,7 @@ export default function customDomToPdf(
                 let xOffset;
                 let yOffset;
 
+                // Fit logic
                 if (imgAspectRatio > pdfAspectRatio) {
                   // Wider than tall - use full width
                   finalWidth = pdfWidth;
@@ -326,10 +408,10 @@ export default function customDomToPdf(
                   xOffset = margin;
                   yOffset = margin;
                 } else {
-                  // Taller than wide - center horizontally but keep at top
-                  finalHeight = pdfHeight;
-                  finalWidth = pdfHeight * imgAspectRatio;
-                  xOffset = margin + (pdfWidth - finalWidth) / 2;
+                  // Taller than wide - use full height or fit width if it's just a segment
+                  finalWidth = pdfWidth;
+                  finalHeight = pdfWidth / imgAspectRatio;
+                  xOffset = margin;
                   yOffset = margin;
                 }
 
