@@ -104,7 +104,8 @@ export default function customDomToPdf(
 
       // Reset margins and padding of internal elements to avoid duplication
       // This is especially important for .grid-container which has margins applied
-      const gridContainer = clonedElementStyled.querySelector('.grid-container');
+      const gridContainer =
+        clonedElementStyled.querySelector('.grid-container');
       if (gridContainer) {
         const gridContainerStyled = gridContainer as HTMLElement;
         gridContainerStyled.style.marginTop = '0';
@@ -114,7 +115,8 @@ export default function customDomToPdf(
       }
 
       // Reset margins from dashboard-content if present
-      const dashboardContent = clonedElementStyled.querySelector('.dashboard-content');
+      const dashboardContent =
+        clonedElementStyled.querySelector('.dashboard-content');
       if (dashboardContent) {
         const dashboardContentStyled = dashboardContent as HTMLElement;
         dashboardContentStyled.style.marginLeft = '0';
@@ -156,7 +158,10 @@ export default function customDomToPdf(
         }
 
         // Ensure flex/grid containers don't cause issues
-        if (computedStyle.display === 'flex' || computedStyle.display === 'inline-flex') {
+        if (
+          computedStyle.display === 'flex' ||
+          computedStyle.display === 'inline-flex'
+        ) {
           // Keep flex but ensure it doesn't cause overlapping
           el.style.flexWrap = 'wrap';
         }
