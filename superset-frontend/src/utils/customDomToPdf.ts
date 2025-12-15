@@ -140,72 +140,72 @@ function calculatePageHeight(containerWidth: number, margin: number): number {
 }
 
 /**
- * MEJORA: Lógica inteligente de saltos de página.
- * Busca elementos que crucen el límite de la página y añade espaciadores.
+ * IMPROVEMENT: Smart page break logic.
+ * Finds elements that cross the page boundary and adds spacers.
  */
 function addPageBreaks(
   container: HTMLElement,
   pageHeight: number,
   topPadding = 32,
 ): void {
-  // En Superset, los componentes principales suelen tener clases específicas.
-  // Intentamos seleccionar los contenedores de gráficos o filas.
-  // Si no encuentra clases específicas, usa los hijos directos.
+  // In Superset, main components usually have specific classes.
+  // We try to select chart containers or rows.
+  // If no specific classes are found, use direct children.
   let elements = Array.from(
     container.querySelectorAll('.dashboard-component, .chart-container, .row'),
   );
 
-  // Fallback: si no encuentra estructura de superset, usa hijos directos
+  // Fallback: if no superset structure is found, use direct children
   if (elements.length === 0) {
     elements = Array.from(container.children);
   }
 
-  // Obtenemos la posición del contenedor principal para cálculos relativos
+  // Get the position of the main container for relative calculations
   const containerRect = container.getBoundingClientRect();
 
   elements.forEach(child => {
     const el = child as HTMLElement;
 
-    // IMPORTANTE: Llamar a getBoundingClientRect DENTRO del loop.
-    // Esto asegura que si empujamos un elemento anterior hacia abajo,
-    // las coordenadas del elemento actual se actualicen.
+    // IMPORTANT: Call getBoundingClientRect INSIDE the loop.
+    // This ensures that if we push a previous element down,
+    // the coordinates of the current element are updated.
     const rect = el.getBoundingClientRect();
 
-    // Altura del elemento
+    // Element height
     const { height } = rect;
 
-    // Posición relativa al inicio del documento PDF clonado
+    // Position relative to the start of the cloned PDF document
     const relativeTop = rect.top - containerRect.top;
     const relativeBottom = relativeTop + height;
 
-    // Calcular en qué "página" cae el inicio y el final del elemento
+    // Calculate which "page" the start and end of the element fall on
     const startPage = Math.floor(relativeTop / pageHeight);
     const endPage = Math.floor(relativeBottom / pageHeight);
 
-    // Lógica de decisión:
-    // 1. Si el elemento empieza en una página y termina en otra (startPage !== endPage)
-    // 2. Y el elemento NO es más grande que una página entera (height < pageHeight)
-    //    (Si es gigante, se cortará de todas formas, no tiene sentido empujarlo)
+    // Decision logic:
+    // 1. If the element starts on one page and ends on another (startPage !== endPage)
+    // 2. And the element is NOT larger than a full page (height < pageHeight)
+    //    (If it's huge, it will be cut anyway, no point in pushing it)
     if (startPage !== endPage && height < pageHeight) {
-      // Calcular cuánto espacio queda en la página actual
+      // Calculate how much space remains on the current page
       const remainingSpaceOnPage = pageHeight - (relativeTop % pageHeight);
 
-      // Crear un espaciador invisible para empujar contenido a la siguiente página
+      // Create an invisible spacer to push content to the next page
       const pageBreak = document.createElement('div');
       pageBreak.style.display = 'block';
       pageBreak.style.height = `${remainingSpaceOnPage}px`;
       pageBreak.style.width = '100%';
-      // Clase para depuración si fuera necesario
+      // Class for debugging if needed
       pageBreak.className = 'custom-pdf-page-break-spacer';
 
-      // Crear un espaciador para el padding-top de la nueva página
+      // Create a spacer for the top padding of the new page
       const pagePaddingTop = document.createElement('div');
       pagePaddingTop.style.display = 'block';
       pagePaddingTop.style.height = `${topPadding}px`;
       pagePaddingTop.style.width = '100%';
       pagePaddingTop.className = 'custom-pdf-page-padding-top';
 
-      // Insertar los espaciadores ANTES del elemento que se iba a cortar
+      // Insert the spacers BEFORE the element that was going to be cut
       if (el.parentNode) {
         el.parentNode.insertBefore(pageBreak, el);
         el.parentNode.insertBefore(pagePaddingTop, el);
@@ -245,7 +245,7 @@ export default function customDomToPdf(
       overlay.style.opacity = '0'; // Keep hidden but rendered
       overlay.style.pointerEvents = 'none';
       overlay.style.overflow = 'hidden';
-      // Fondo blanco explícito para evitar problemas de transparencia
+      // Explicit white background to avoid transparency issues
       overlay.style.backgroundColor = '#ffffff';
 
       // Clone the element
@@ -318,7 +318,7 @@ export default function customDomToPdf(
         return true;
       };
 
-      const scale = html2canvas.scale || 1; // 2 da mejor calidad pero es más lento
+      const scale = html2canvas.scale || 1; // 2 gives better quality but is slower
 
       // Generate the full canvas first
       domToImage
@@ -349,11 +349,11 @@ export default function customDomToPdf(
             for (let page = 0; page < numPages; page += 1) {
               const yOffset = page * scaledPageHeight;
 
-              // Ajuste fino para la última página
+              // Fine adjustment for the last page
               let renderHeight = scaledPageHeight;
               if (page === numPages - 1) {
                 const remainingHeight = fullHeight - yOffset;
-                // Si el remanente es muy pequeño, a veces es borde blanco, opcionalmente ignorar
+                // If the remainder is very small, sometimes it's a white border, optionally ignore
                 renderHeight = remainingHeight;
               }
 
