@@ -102,6 +102,66 @@ export default function customDomToPdf(
       // Use box-sizing to include padding in width calculation
       clonedElementStyled.style.boxSizing = 'border-box';
 
+      // Reset margins and padding of internal elements to avoid duplication
+      // This is especially important for .grid-container which has margins applied
+      const gridContainer = clonedElementStyled.querySelector('.grid-container');
+      if (gridContainer) {
+        const gridContainerStyled = gridContainer as HTMLElement;
+        gridContainerStyled.style.marginTop = '0';
+        gridContainerStyled.style.marginRight = '0';
+        gridContainerStyled.style.marginBottom = '0';
+        gridContainerStyled.style.marginLeft = '0';
+      }
+
+      // Reset margins from dashboard-content if present
+      const dashboardContent = clonedElementStyled.querySelector('.dashboard-content');
+      if (dashboardContent) {
+        const dashboardContentStyled = dashboardContent as HTMLElement;
+        dashboardContentStyled.style.marginLeft = '0';
+      }
+
+      // Fix position and z-index issues that cause overlapping in PDF
+      // Reset position: fixed/absolute/sticky to static for proper PDF flow
+      const allElements = clonedElementStyled.querySelectorAll('*');
+      allElements.forEach(element => {
+        const el = element as HTMLElement;
+        const computedStyle = window.getComputedStyle(el);
+
+        // Reset problematic position values to static (not relative)
+        // Static ensures elements flow in normal document flow
+        if (
+          computedStyle.position === 'fixed' ||
+          computedStyle.position === 'absolute' ||
+          computedStyle.position === 'sticky'
+        ) {
+          el.style.position = 'static';
+          el.style.top = '';
+          el.style.left = '';
+          el.style.right = '';
+          el.style.bottom = '';
+          el.style.inset = '';
+        }
+
+        // Reset ALL z-index values to ensure proper stacking
+        el.style.zIndex = '';
+
+        // Ensure transform doesn't cause issues
+        if (computedStyle.transform !== 'none') {
+          el.style.transform = 'none';
+        }
+
+        // Remove float which can cause overlapping
+        if (computedStyle.float !== 'none') {
+          el.style.float = 'none';
+        }
+
+        // Ensure flex/grid containers don't cause issues
+        if (computedStyle.display === 'flex' || computedStyle.display === 'inline-flex') {
+          // Keep flex but ensure it doesn't cause overlapping
+          el.style.flexWrap = 'wrap';
+        }
+      });
+
       // Define background color
       const bgcolor = html2canvas.backgroundColor || '#ffffff';
 
@@ -180,11 +240,14 @@ export default function customDomToPdf(
 
             const fullHeight = canvas.height;
             const scaledPageHeight = pageHeight * scale;
+
+            // Calculate number of pages needed
             const numPages = Math.ceil(fullHeight / scaledPageHeight);
 
             let pageAdded = false;
 
             for (let page = 0; page < numPages; page += 1) {
+              // Calculate y offset for this page
               const yOffset = page * scaledPageHeight;
 
               // Fine adjustment for the last page

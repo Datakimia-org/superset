@@ -120,74 +120,154 @@ export function calculatePageHeight(
 /**
  * IMPROVEMENT: Smart page break logic.
  * Finds elements that cross the page boundary and adds spacers.
+ * Uses iterative approach to handle position changes after inserting spacers.
  */
 export function addPageBreaks(
   container: HTMLElement,
   pageHeight: number,
   topPadding = 32,
 ): void {
-  // In Superset, main components usually have specific classes.
-  // We try to select chart containers or rows.
-  // If no specific classes are found, use direct children.
-  let elements = Array.from(
-    container.querySelectorAll('.dashboard-component, .chart-container, .row'),
-  );
-
-  // Fallback: if no superset structure is found, use direct children
-  if (elements.length === 0) {
-    elements = Array.from(container.children);
-  }
-
   // Get the position of the main container for relative calculations
   const containerRect = container.getBoundingClientRect();
 
-  elements.forEach(child => {
-    const el = child as HTMLElement;
+  // CRITICAL: Find the grid-content container which is the flex column parent of rows
+  const gridContent = container.querySelector('.grid-content');
+  if (!gridContent) {
+    // If no grid-content, can't apply page breaks properly
+    return;
+  }
 
-    // IMPORTANT: Call getBoundingClientRect INSIDE the loop.
-    // This ensures that if we push a previous element down,
-    // the coordinates of the current element are updated.
+  // Select ONLY row-level elements (direct children of grid-content)
+  // These are the units that should be kept together or pushed to next page
+  // DO NOT select individual chart holders - only their parent rows
+  const selectors = [
+    '.grid-row',
+    '.dashboard-component-row',
+    '.dashboard-component-header',
+    '.dashboard-component-divider',
+    '.dashboard-markdown',
+    '.dashboard-component-tabs',
+  ];
+
+  // Find all row-level elements that are DIRECT children of grid-content
+  const elements: HTMLElement[] = [];
+
+  selectors.forEach(selector => {
+    const found = Array.from(gridContent.querySelectorAll(selector));
+    found.forEach(el => {
+      // Only include if it's a direct child of grid-content (or one level deep)
+      // This prevents processing nested rows inside columns
+      const parent = el.parentElement;
+      if (parent === gridContent || parent?.parentElement === gridContent) {
+        if (!elements.includes(el as HTMLElement)) {
+          elements.push(el as HTMLElement);
+        }
+      }
+    });
+  });
+
+  // If no specific elements found, use direct children of grid-content
+  if (elements.length === 0) {
+    const directChildren = Array.from(gridContent.children) as HTMLElement[];
+    directChildren.forEach(child => {
+      // Skip spacers we've already added
+      if (
+        !child.className.includes('custom-pdf-page-break-spacer') &&
+        !child.className.includes('custom-pdf-page-padding-top')
+      ) {
+        elements.push(child);
+      }
+    });
+  }
+
+  // Process elements iteratively - check positions after each insertion
+  let i = 0;
+  while (i < elements.length) {
+    const el = elements[i];
+
+    // Skip elements that are already page break spacers
+    if (
+      el.className.includes('custom-pdf-page-break-spacer') ||
+      el.className.includes('custom-pdf-page-padding-top')
+    ) {
+      i++;
+      continue;
+    }
+
+    // Skip elements with display: none or visibility: hidden
+    const computedStyle = window.getComputedStyle(el);
+    if (
+      computedStyle.display === 'none' ||
+      computedStyle.visibility === 'hidden' ||
+      el.offsetHeight === 0
+    ) {
+      i++;
+      continue;
+    }
+
+    // Get FRESH position each time (critical for handling inserted spacers)
     const rect = el.getBoundingClientRect();
-
-    // Element height
     const { height } = rect;
 
-    // Position relative to the start of the cloned PDF document
-    const relativeTop = rect.top - containerRect.top;
+    // Skip very small elements
+    if (height < 10) {
+      i++;
+      continue;
+    }
+
+    // Recalculate grid-content position in case it changed
+    const currentGridContentRect = gridContent.getBoundingClientRect();
+    const relativeTop = rect.top - currentGridContentRect.top;
     const relativeBottom = relativeTop + height;
 
-    // Calculate which "page" the start and end of the element fall on
+    // Calculate which "page" the element falls on
     const startPage = Math.floor(relativeTop / pageHeight);
     const endPage = Math.floor(relativeBottom / pageHeight);
 
-    // Decision logic:
-    // 1. If the element starts on one page and ends on another (startPage !== endPage)
-    // 2. And the element is NOT larger than a full page (height < pageHeight)
-    //    (If it's huge, it will be cut anyway, no point in pushing it)
-    if (startPage !== endPage && height < pageHeight) {
-      // Calculate how much space remains on the current page
+    // Check if element crosses page boundary
+    if (startPage !== endPage) {
       const remainingSpaceOnPage = pageHeight - (relativeTop % pageHeight);
 
-      // Create an invisible spacer to push content to the next page
-      const pageBreak = document.createElement('div');
-      pageBreak.style.display = 'block';
-      pageBreak.style.height = `${remainingSpaceOnPage}px`;
-      pageBreak.style.width = '100%';
-      // Class for debugging if needed
-      pageBreak.className = 'custom-pdf-page-break-spacer';
+      // For dashboard rows/components, ALWAYS push to next page if they cross boundaries
+      // Exception: if element is taller than 90% of a page, let it be cut (it's too big anyway)
+      const isTooLargeToFit = height > pageHeight * 0.9;
 
-      // Create a spacer for the top padding of the new page
-      const pagePaddingTop = document.createElement('div');
-      pagePaddingTop.style.display = 'block';
-      pagePaddingTop.style.height = `${topPadding}px`;
-      pagePaddingTop.style.width = '100%';
-      pagePaddingTop.className = 'custom-pdf-page-padding-top';
+      // Also check if there's enough content being cut to warrant pushing
+      // If less than 50px would be cut, it might be just a border/shadow, let it be
+      const amountOnNextPage = height - remainingSpaceOnPage;
+      const isSignificantlyCut = amountOnNextPage > 50;
 
-      // Insert the spacers BEFORE the element that was going to be cut
-      if (el.parentNode) {
-        el.parentNode.insertBefore(pageBreak, el);
-        el.parentNode.insertBefore(pagePaddingTop, el);
+      if (!isTooLargeToFit && isSignificantlyCut) {
+        // Create spacer to push to next page
+        const pageBreak = document.createElement('div');
+        pageBreak.style.display = 'block';
+        pageBreak.style.height = `${remainingSpaceOnPage}px`;
+        pageBreak.style.width = '100%';
+        pageBreak.style.flexShrink = '0';
+        pageBreak.className = 'custom-pdf-page-break-spacer';
+
+        // Create top padding for new page
+        const pagePaddingTop = document.createElement('div');
+        pagePaddingTop.style.display = 'block';
+        pagePaddingTop.style.height = `${topPadding}px`;
+        pagePaddingTop.style.width = '100%';
+        pagePaddingTop.style.flexShrink = '0';
+        pagePaddingTop.className = 'custom-pdf-page-padding-top';
+
+        // Insert spacers
+        if (el.parentNode) {
+          el.parentNode.insertBefore(pageBreak, el);
+          el.parentNode.insertBefore(pagePaddingTop, el);
+
+          // After inserting, we need to recheck subsequent elements
+          // because their positions have changed
+          // So we don't increment i, we re-process this element
+          // to verify its new position is correct
+          continue;
+        }
       }
     }
-  });
+
+    i++;
+  }
 }
