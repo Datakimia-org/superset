@@ -127,9 +127,6 @@ export function addPageBreaks(
   pageHeight: number,
   topPadding = 32,
 ): void {
-  // Get the position of the main container for relative calculations
-  const containerRect = container.getBoundingClientRect();
-
   // CRITICAL: Find the grid-content container which is the flex column parent of rows
   const gridContent = container.querySelector('.grid-content');
   if (!gridContent) {
@@ -190,7 +187,7 @@ export function addPageBreaks(
       el.className.includes('custom-pdf-page-break-spacer') ||
       el.className.includes('custom-pdf-page-padding-top')
     ) {
-      i++;
+      i += 1;
       continue;
     }
 
@@ -201,7 +198,7 @@ export function addPageBreaks(
       computedStyle.visibility === 'hidden' ||
       el.offsetHeight === 0
     ) {
-      i++;
+      i += 1;
       continue;
     }
 
@@ -211,7 +208,7 @@ export function addPageBreaks(
 
     // Skip very small elements
     if (height < 10) {
-      i++;
+      i += 1;
       continue;
     }
 
@@ -268,6 +265,6 @@ export function addPageBreaks(
       }
     }
 
-    i++;
+    i += 1;
   }
 }
