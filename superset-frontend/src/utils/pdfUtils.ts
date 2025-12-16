@@ -227,7 +227,6 @@ export function addPageBreaks(
 
     // Check if element crosses page boundary OR is too close to bottom
     if (startPage !== endPage || isNearPageBottom) {
-
       // For dashboard rows/components, ALWAYS push to next page if they cross boundaries
       // Exception: if element is taller than a full page, let it be cut (no other option)
       // This ensures NO chart is cut unless it's physically larger than a page
