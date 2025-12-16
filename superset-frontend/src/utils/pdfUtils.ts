@@ -134,9 +134,8 @@ export function addPageBreaks(
     return;
   }
 
-  // Select ONLY row-level elements (direct children of grid-content)
-  // These are the units that should be kept together or pushed to next page
-  // DO NOT select individual chart holders - only their parent rows
+  // Select row-level elements AND individual chart holders
+  // This ensures both entire rows and individual charts within rows don't get cut
   const selectors = [
     '.grid-row',
     '.dashboard-component-row',
@@ -144,21 +143,20 @@ export function addPageBreaks(
     '.dashboard-component-divider',
     '.dashboard-markdown',
     '.dashboard-component-tabs',
+    '.dashboard-component-chart-holder', // Individual charts within rows
   ];
 
-  // Find all row-level elements that are DIRECT children of grid-content
+  // Find all relevant elements: rows, headers, and individual chart holders
   const elements: HTMLElement[] = [];
 
   selectors.forEach(selector => {
     const found = Array.from(gridContent.querySelectorAll(selector));
     found.forEach(el => {
-      // Only include if it's a direct child of grid-content (or one level deep)
-      // This prevents processing nested rows inside columns
-      const parent = el.parentElement;
-      if (parent === gridContent || parent?.parentElement === gridContent) {
-        if (!elements.includes(el as HTMLElement)) {
-          elements.push(el as HTMLElement);
-        }
+      // Include elements that are within the grid-content hierarchy
+      // For chart holders, they can be nested deeper (inside columns/rows)
+      // For row-level elements, prefer direct children
+      if (!elements.includes(el as HTMLElement)) {
+        elements.push(el as HTMLElement);
       }
     });
   });
@@ -221,20 +219,21 @@ export function addPageBreaks(
     const startPage = Math.floor(relativeTop / pageHeight);
     const endPage = Math.floor(relativeBottom / pageHeight);
 
-    // Check if element crosses page boundary
-    if (startPage !== endPage) {
-      const remainingSpaceOnPage = pageHeight - (relativeTop % pageHeight);
+    // SAFETY BUFFER: Consider element as crossing if it's too close to page bottom
+    // This prevents elements from being cut due to rounding errors
+    const BOTTOM_BUFFER = 30; // pixels
+    const remainingSpaceOnPage = pageHeight - (relativeTop % pageHeight);
+    const isNearPageBottom = remainingSpaceOnPage < height + BOTTOM_BUFFER;
+
+    // Check if element crosses page boundary OR is too close to bottom
+    if (startPage !== endPage || isNearPageBottom) {
 
       // For dashboard rows/components, ALWAYS push to next page if they cross boundaries
-      // Exception: if element is taller than 90% of a page, let it be cut (it's too big anyway)
-      const isTooLargeToFit = height > pageHeight * 0.9;
+      // Exception: if element is taller than a full page, let it be cut (no other option)
+      // This ensures NO chart is cut unless it's physically larger than a page
+      const isTallerThanPage = height > pageHeight;
 
-      // Also check if there's enough content being cut to warrant pushing
-      // If less than 50px would be cut, it might be just a border/shadow, let it be
-      const amountOnNextPage = height - remainingSpaceOnPage;
-      const isSignificantlyCut = amountOnNextPage > 50;
-
-      if (!isTooLargeToFit && isSignificantlyCut) {
+      if (!isTallerThanPage) {
         // Create spacer to push to next page
         const pageBreak = document.createElement('div');
         pageBreak.style.display = 'block';
