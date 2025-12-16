@@ -7,7 +7,7 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
@@ -20,6 +20,14 @@
 import domToImage from 'dom-to-image-more';
 import { jsPDF } from 'jspdf';
 import { logging } from '@superset-ui/core';
+import {
+  A4_WIDTH_PT,
+  A4_HEIGHT_PT,
+  cloneNode,
+  isCanvasBlank,
+  calculatePageHeight,
+  addPageBreaks,
+} from './pdfUtils';
 
 interface Image {
   type: string;
@@ -42,134 +50,6 @@ interface CustomDomToPdfOptions {
   html2canvas?: Html2CanvasOptions;
   excludeClassNames?: string[];
   excludeTagNames?: string[];
-}
-
-// A4 dimensions in points (at 72 DPI)
-const A4_WIDTH_PT = 595.28;
-const A4_HEIGHT_PT = 841.89;
-
-/**
- * Clone a DOM node with special handling for form elements and canvas
- */
-function cloneNode(node: Node): Node {
-  const clonedNode = node.cloneNode(true);
-
-  if (clonedNode.nodeType === Node.ELEMENT_NODE) {
-    const element = clonedNode as Element;
-
-    // Handle canvas elements - preserve their content
-    const canvases = element.querySelectorAll('canvas');
-    const originalCanvases = (node as Element).querySelectorAll('canvas');
-
-    for (let i = 0; i < canvases.length; i += 1) {
-      try {
-        const canvas = canvases[i] as HTMLCanvasElement;
-        const originalCanvas = originalCanvases[i] as HTMLCanvasElement;
-        const ctx = canvas.getContext('2d');
-        if (ctx && originalCanvas) {
-          ctx.drawImage(originalCanvas, 0, 0);
-        }
-      } catch (error) {
-        logging.debug('Failed to clone canvas content:', error);
-      }
-    }
-
-    // Handle form elements - preserve their values
-    const textareas = element.querySelectorAll('textarea');
-    const originalTextareas = (node as Element).querySelectorAll('textarea');
-    for (let i = 0; i < textareas.length; i += 1) {
-      textareas[i].innerHTML = originalTextareas[i].value;
-    }
-
-    const selects = element.querySelectorAll('select');
-    const originalSelects = (node as Element).querySelectorAll('select');
-    for (let i = 0; i < selects.length; i += 1) {
-      const select = selects[i] as HTMLSelectElement;
-      const originalSelect = originalSelects[i] as HTMLSelectElement;
-      select.selectedIndex = originalSelect.selectedIndex;
-    }
-
-    // Remove script tags for security
-    const scripts = element.querySelectorAll('script');
-    scripts.forEach(script => script.remove());
-  }
-
-  return clonedNode;
-}
-
-/**
- * Check if a canvas is blank (all pixels are transparent or white)
- */
-function isCanvasBlank(canvas: HTMLCanvasElement): boolean {
-  try {
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return true;
-
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const { data } = imageData;
-
-    for (let i = 0; i < data.length; i += 4) {
-      // Check if pixel has any non-white/non-transparent content
-      if (
-        data[i] !== 255 ||
-        data[i + 1] !== 255 ||
-        data[i + 2] !== 255 ||
-        data[i + 3] !== 0
-      ) {
-        return false;
-      }
-    }
-    return true;
-  } catch (error) {
-    logging.debug('Could not check if canvas is blank:', error);
-    return false;
-  }
-}
-
-/**
- * Calculate the pixel height for one page based on A4 dimensions
- */
-function calculatePageHeight(containerWidth: number, margin: number): number {
-  // Calculate the ratio to convert from A4 points to pixels
-  const pageWidthWithMargin = containerWidth;
-  const pageWidthPt = A4_WIDTH_PT - margin * 2;
-  const scale = pageWidthWithMargin / pageWidthPt;
-
-  const pageHeightPt = A4_HEIGHT_PT - margin * 2;
-  return Math.floor(pageHeightPt * scale);
-}
-
-/**
- * Add page break logic to avoid splitting elements across pages
- */
-function addPageBreaks(element: Element, pageHeight: number): void {
-  const children = Array.from(element.children);
-  let currentPageHeight = 0;
-
-  children.forEach((child, index) => {
-    const childElement = child as HTMLElement;
-    const childHeight = childElement.offsetHeight;
-
-    // Check if this element would overflow to next page
-    if (currentPageHeight + childHeight > pageHeight && currentPageHeight > 0) {
-      // Add padding div to push element to next page
-      const pageBreak = document.createElement('div');
-      const remainingHeight = pageHeight - currentPageHeight;
-      pageBreak.style.height = `${remainingHeight}px`;
-      pageBreak.style.width = '100%';
-      pageBreak.className = 'custom-pdf-page-break';
-
-      element.insertBefore(pageBreak, childElement);
-      currentPageHeight = childHeight;
-    } else {
-      currentPageHeight += childHeight;
-
-      // Reset height counter when we reach page limit
-      if (currentPageHeight >= pageHeight) {
-        currentPageHeight = 0;
-      }
-    }
-  });
 }
 
 /**
@@ -200,30 +80,128 @@ export default function customDomToPdf(
       overlay.style.width = '100vw';
       overlay.style.height = '100vh';
       overlay.style.zIndex = '1000';
-      overlay.style.opacity = '0';
+      overlay.style.opacity = '0'; // Keep hidden but rendered
       overlay.style.pointerEvents = 'none';
       overlay.style.overflow = 'hidden';
+      // Explicit white background to avoid transparency issues
+      overlay.style.backgroundColor = '#ffffff';
 
       // Clone the element
       const clonedElement = cloneNode(elementToPrint) as Element;
       const clonedElementStyled = clonedElement as HTMLElement;
 
-      // Apply styling to match original
+      // Apply styling to match original but allow full expansion
       clonedElementStyled.style.width = `${elementToPrint.scrollWidth}px`;
       clonedElementStyled.style.height = 'auto';
       clonedElementStyled.style.maxWidth = 'none';
       clonedElementStyled.style.maxHeight = 'none';
       clonedElementStyled.style.overflow = 'visible';
+      // Reset margin and padding from original element
+      clonedElementStyled.style.margin = '0';
+      clonedElementStyled.style.padding = '0';
+      // Use box-sizing to include padding in width calculation
+      clonedElementStyled.style.boxSizing = 'border-box';
 
-      overlay.appendChild(clonedElementStyled);
+      // Reset margins and padding of internal elements to avoid duplication
+      // This is especially important for .grid-container which has margins applied
+      const gridContainer =
+        clonedElementStyled.querySelector('.grid-container');
+      if (gridContainer) {
+        const gridContainerStyled = gridContainer as HTMLElement;
+        gridContainerStyled.style.marginTop = '0';
+        gridContainerStyled.style.marginRight = '0';
+        gridContainerStyled.style.marginBottom = '0';
+        gridContainerStyled.style.marginLeft = '0';
+      }
+
+      // Reset margins from dashboard-content if present
+      const dashboardContent =
+        clonedElementStyled.querySelector('.dashboard-content');
+      if (dashboardContent) {
+        const dashboardContentStyled = dashboardContent as HTMLElement;
+        dashboardContentStyled.style.marginLeft = '0';
+      }
+
+      // Fix position and z-index issues that cause overlapping in PDF
+      // Reset position: fixed/absolute/sticky to static for proper PDF flow
+      const allElements = clonedElementStyled.querySelectorAll('*');
+      allElements.forEach(element => {
+        const el = element as HTMLElement;
+        const computedStyle = window.getComputedStyle(el);
+
+        // Reset problematic position values to static (not relative)
+        // Static ensures elements flow in normal document flow
+        if (
+          computedStyle.position === 'fixed' ||
+          computedStyle.position === 'absolute' ||
+          computedStyle.position === 'sticky'
+        ) {
+          el.style.position = 'static';
+          el.style.top = '';
+          el.style.left = '';
+          el.style.right = '';
+          el.style.bottom = '';
+          el.style.inset = '';
+        }
+
+        // Reset ALL z-index values to ensure proper stacking
+        el.style.zIndex = '';
+
+        // Ensure transform doesn't cause issues
+        if (computedStyle.transform !== 'none') {
+          el.style.transform = 'none';
+        }
+
+        // Remove float which can cause overlapping
+        if (computedStyle.float !== 'none') {
+          el.style.float = 'none';
+        }
+
+        // Ensure flex/grid containers don't cause issues
+        if (
+          computedStyle.display === 'flex' ||
+          computedStyle.display === 'inline-flex'
+        ) {
+          // Keep flex but ensure it doesn't cause overlapping
+          el.style.flexWrap = 'wrap';
+        }
+      });
+
+      // Define background color
+      const bgcolor = html2canvas.backgroundColor || '#ffffff';
+
+      // Create wrapper with only horizontal padding (left/right)
+      // Vertical padding is added via spacer divs to avoid issues with page breaks
+      const wrapper = document.createElement('div');
+      wrapper.style.paddingLeft = '32px';
+      wrapper.style.paddingRight = '32px';
+      wrapper.style.backgroundColor = bgcolor;
+      wrapper.style.boxSizing = 'border-box';
+
+      // Add top spacer
+      const topSpacer = document.createElement('div');
+      topSpacer.style.height = '32px';
+      topSpacer.style.backgroundColor = bgcolor;
+      wrapper.appendChild(topSpacer);
+
+      // Add content
+      wrapper.appendChild(clonedElementStyled);
+
+      // Add bottom spacer
+      const bottomSpacer = document.createElement('div');
+      bottomSpacer.style.height = '32px';
+      bottomSpacer.style.backgroundColor = bgcolor;
+      wrapper.appendChild(bottomSpacer);
+
+      overlay.appendChild(wrapper);
       document.body.appendChild(overlay);
 
-      // Calculate page dimensions
-      const containerWidth = elementToPrint.scrollWidth;
+      // Calculate page dimensions based on the ACTUAL width of the cloned content
+      const containerWidth = wrapper.getBoundingClientRect().width;
       const pageHeight = calculatePageHeight(containerWidth, margin);
 
-      // Add page breaks for better pagination
-      addPageBreaks(clonedElementStyled, pageHeight);
+      // Add page breaks using the smart logic (with 32px top padding for each new page)
+      addPageBreaks(wrapper, pageHeight, 32);
 
       // Create filter function
       const filter = (node: Element) => {
@@ -243,22 +221,21 @@ export default function customDomToPdf(
         return true;
       };
 
-      const bgcolor = html2canvas.backgroundColor || '#ffffff';
-      const scale = html2canvas.scale || 1;
+      const scale = html2canvas.scale || 1; // 2 gives better quality but is slower
 
       // Generate the full canvas first
       domToImage
-        .toCanvas(clonedElementStyled, {
+        .toCanvas(wrapper, {
           bgcolor,
           filter,
           quality: image.quality,
           width: containerWidth * scale,
-          height: clonedElementStyled.scrollHeight * scale,
+          height: wrapper.scrollHeight * scale,
           style: {
             transform: `scale(${scale})`,
             transformOrigin: 'top left',
             width: `${containerWidth}px`,
-            height: `${clonedElementStyled.scrollHeight}px`,
+            height: `${wrapper.scrollHeight}px`,
           },
         })
         .then((canvas: HTMLCanvasElement) => {
@@ -268,39 +245,49 @@ export default function customDomToPdf(
 
             const fullHeight = canvas.height;
             const scaledPageHeight = pageHeight * scale;
+
+            // Calculate number of pages needed
             const numPages = Math.ceil(fullHeight / scaledPageHeight);
 
             let pageAdded = false;
 
             for (let page = 0; page < numPages; page += 1) {
+              // Calculate y offset for this page
               const yOffset = page * scaledPageHeight;
-              const currentPageHeight = Math.min(
-                scaledPageHeight,
-                fullHeight - yOffset,
-              );
+
+              // Fine adjustment for the last page
+              let renderHeight = scaledPageHeight;
+              if (page === numPages - 1) {
+                const remainingHeight = fullHeight - yOffset;
+                // If the remainder is very small, sometimes it's a white border, optionally ignore
+                renderHeight = remainingHeight;
+              }
 
               // Create canvas for this page
               const pageCanvas = document.createElement('canvas');
               pageCanvas.width = canvas.width;
-              pageCanvas.height = currentPageHeight;
+              pageCanvas.height = renderHeight;
 
               const pageCtx = pageCanvas.getContext('2d');
               if (!pageCtx) continue;
 
               // Copy the relevant portion of the full canvas
+              pageCtx.fillStyle = '#ffffff';
+              pageCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+
               pageCtx.drawImage(
                 canvas,
                 0,
                 yOffset,
                 canvas.width,
-                currentPageHeight,
+                renderHeight,
                 0,
                 0,
                 canvas.width,
-                currentPageHeight,
+                renderHeight,
               );
 
-              // Skip blank pages
+              // Skip blank pages logic
               if (!isCanvasBlank(pageCanvas)) {
                 // Add new page if not the first
                 if (pageAdded) {
@@ -319,15 +306,18 @@ export default function customDomToPdf(
                 let xOffset;
                 let yOffset;
 
+                // Fit logic
                 if (imgAspectRatio > pdfAspectRatio) {
+                  // Wider than tall - use full width
                   finalWidth = pdfWidth;
                   finalHeight = pdfWidth / imgAspectRatio;
                   xOffset = margin;
-                  yOffset = margin + (pdfHeight - finalHeight) / 2;
+                  yOffset = margin;
                 } else {
-                  finalHeight = pdfHeight;
-                  finalWidth = pdfHeight * imgAspectRatio;
-                  xOffset = margin + (pdfWidth - finalWidth) / 2;
+                  // Taller than wide - use full height or fit width if it's just a segment
+                  finalWidth = pdfWidth;
+                  finalHeight = pdfWidth / imgAspectRatio;
+                  xOffset = margin;
                   yOffset = margin;
                 }
 
