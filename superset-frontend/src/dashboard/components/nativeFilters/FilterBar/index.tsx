@@ -65,7 +65,7 @@ import ActionButtons from './ActionButtons';
 import Horizontal from './Horizontal';
 import Vertical from './Vertical';
 import { useSelectFiltersInScope } from '../state';
-import { saveFilterHistory, FilterInfo } from './filterHistoryStorage';
+import { saveFilterHistory } from './filterHistoryStorage';
 import FilterHistory from './FilterHistory';
 
 // FilterBar is just being hidden as it must still
@@ -251,7 +251,10 @@ const FilterBar: FC<FiltersBarProps> = ({
     if (dashboardId) {
       // Extract applied filter information
       const appliedFilters = filterIds
-        .filter(filterId => dataMaskSelected[filterId]?.filterState?.value !== undefined)
+        .filter(
+          filterId =>
+            dataMaskSelected[filterId]?.filterState?.value !== undefined,
+        )
         .map(filterId => ({
           id: filterId,
           name: filters[filterId]?.name || filterId,

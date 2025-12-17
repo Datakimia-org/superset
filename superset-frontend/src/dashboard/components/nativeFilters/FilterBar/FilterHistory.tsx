@@ -17,12 +17,7 @@
  * under the License.
  */
 import { useState, useEffect } from 'react';
-import {
-  css,
-  SupersetTheme,
-  t,
-  DataMaskStateWithId,
-} from '@superset-ui/core';
+import { css, SupersetTheme, t, DataMaskStateWithId } from '@superset-ui/core';
 import Modal from 'src/components/Modal';
 import Button from 'src/components/Button';
 import { Empty } from 'antd';
@@ -31,7 +26,6 @@ import {
   getFilterHistory,
   deleteFilterHistoryEntry,
   FilterHistoryEntry,
-  FilterInfo,
 } from './filterHistoryStorage';
 
 interface FilterHistoryProps {
@@ -171,10 +165,7 @@ const FilterHistory = ({
     onClose();
   };
 
-  const handleDelete = (
-    e: React.MouseEvent,
-    entryId: string,
-  ) => {
+  const handleDelete = (e: React.MouseEvent, entryId: string) => {
     e.stopPropagation();
     deleteFilterHistoryEntry(dashboardId, entryId);
     const updatedHistory = history.filter(entry => entry.id !== entryId);
@@ -207,6 +198,13 @@ const FilterHistory = ({
               key={entry.id}
               css={historyItemStyle}
               onClick={() => handleApply(entry)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  handleApply(entry);
+                }
+              }}
             >
               <div css={historyItemInfoStyle}>
                 <div css={timestampStyle}>

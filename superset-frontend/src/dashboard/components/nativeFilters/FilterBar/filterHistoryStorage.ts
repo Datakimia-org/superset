@@ -44,9 +44,7 @@ const getStorageKey = (dashboardId: number): string =>
 /**
  * Get filter history for a specific dashboard
  */
-export const getFilterHistory = (
-  dashboardId: number,
-): FilterHistoryEntry[] => {
+export const getFilterHistory = (dashboardId: number): FilterHistoryEntry[] => {
   try {
     const key = getStorageKey(dashboardId);
     const stored = sessionStorage.getItem(key);
