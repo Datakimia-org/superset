@@ -261,7 +261,10 @@ const FilterBar: FC<FiltersBarProps> = ({
           value: dataMaskSelected[filterId]?.filterState?.value,
         }));
 
-      saveFilterHistory(dashboardId, dataMaskSelected, appliedFilters);
+      // Only save to history if there are filters with values
+      if (appliedFilters.length > 0) {
+        saveFilterHistory(dashboardId, dataMaskSelected, appliedFilters);
+      }
     }
   }, [dataMaskSelected, dispatch, dashboardId, filters]);
 

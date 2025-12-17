@@ -113,26 +113,24 @@ const emptyStateStyle = (theme: SupersetTheme) => css`
 
 const formatTimestamp = (timestamp: number): string => {
   const date = new Date(timestamp);
-  const now = new Date();
-  const diffInMs = now.getTime() - date.getTime();
-  const diffInMinutes = Math.floor(diffInMs / 60000);
-  const diffInHours = Math.floor(diffInMs / 3600000);
-  const diffInDays = Math.floor(diffInMs / 86400000);
 
-  if (diffInMinutes < 1) {
-    return t('Just now');
-  }
-  if (diffInMinutes < 60) {
-    return t('%s minutes ago', diffInMinutes);
-  }
-  if (diffInHours < 24) {
-    return t('%s hours ago', diffInHours);
-  }
-  if (diffInDays < 7) {
-    return t('%s days ago', diffInDays);
-  }
+  // Use browser's locale settings to format date and time
+  const dateOptions: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  };
 
-  return date.toLocaleString();
+  const timeOptions: Intl.DateTimeFormatOptions = {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  };
+
+  const formattedDate = date.toLocaleDateString(undefined, dateOptions);
+  const formattedTime = date.toLocaleTimeString(undefined, timeOptions);
+
+  return `${formattedDate}, ${formattedTime}`;
 };
 
 const formatFilterValue = (value: any): string => {
