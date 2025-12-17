@@ -129,12 +129,39 @@ export default function customDomToPdf(
         const el = element as HTMLElement;
         const computedStyle = window.getComputedStyle(el);
 
+        // Skip canvas elements - they need their transforms and positioning for proper rendering (especially WebGL)
+        const isCanvas = el.tagName.toLowerCase() === 'canvas';
+
+        // Check if this is a canvas container or overlay container
+        // These containers need to maintain their positioning for proper layering
+        const hasCanvas = el.querySelector('canvas') !== null;
+        const isCanvasContainer =
+          hasCanvas &&
+          (el.classList.contains('overlays') ||
+            el.classList.contains('mapboxgl-canvas-container') ||
+            el.classList.contains('mapboxgl-map') ||
+            el.classList.contains('deck-canvas') ||
+            el.classList.contains('mapboxgl-children') ||
+            el.id?.includes('deckgl-wrapper'));
+
+        // Also check if this element is a direct child of a map container
+        // (like the overlay canvas wrapper)
+        const parentIsMapContainer =
+          el.parentElement?.classList.contains('mapboxgl-map') ||
+          el.parentElement?.querySelector('.mapboxgl-canvas') !== null;
+
+        const shouldPreserveLayout =
+          isCanvas || isCanvasContainer || (hasCanvas && parentIsMapContainer);
+
         // Reset problematic position values to static (not relative)
         // Static ensures elements flow in normal document flow
+        // EXCEPTION: Don't reset position for canvas elements, their containers,
+        // or overlay wrappers as they need specific positioning for proper rendering
         if (
-          computedStyle.position === 'fixed' ||
-          computedStyle.position === 'absolute' ||
-          computedStyle.position === 'sticky'
+          !shouldPreserveLayout &&
+          (computedStyle.position === 'fixed' ||
+            computedStyle.position === 'absolute' ||
+            computedStyle.position === 'sticky')
         ) {
           el.style.position = 'static';
           el.style.top = '';
@@ -144,11 +171,16 @@ export default function customDomToPdf(
           el.style.inset = '';
         }
 
-        // Reset ALL z-index values to ensure proper stacking
-        el.style.zIndex = '';
+        // Reset z-index values to ensure proper stacking
+        // EXCEPTION: Keep z-index for canvas and containers to maintain proper layering
+        if (!shouldPreserveLayout) {
+          el.style.zIndex = '';
+        }
 
         // Ensure transform doesn't cause issues
-        if (computedStyle.transform !== 'none') {
+        // EXCEPTION: Don't reset transforms on canvas, containers, or overlays
+        // as they may be needed for proper WebGL/mapbox rendering
+        if (computedStyle.transform !== 'none' && !shouldPreserveLayout) {
           el.style.transform = 'none';
         }
 
@@ -203,6 +235,19 @@ export default function customDomToPdf(
       // Add page breaks using the smart logic (with 32px top padding for each new page)
       addPageBreaks(wrapper, pageHeight, 32);
 
+      // CRITICAL: Force browser to render all canvas elements before capturing
+      // This ensures WebGL canvases and overlays are fully rendered
+      // We need to wait for the next animation frame to ensure all canvas content is drawn
+      const waitForCanvasRender = () =>
+        new Promise<void>(resolveWait => {
+          requestAnimationFrame(() => {
+            // Double RAF to ensure all rendering is complete
+            requestAnimationFrame(() => {
+              resolveWait();
+            });
+          });
+        });
+
       // Create filter function
       const filter = (node: Element) => {
         if (typeof node.className === 'string') {
@@ -223,145 +268,148 @@ export default function customDomToPdf(
 
       const scale = html2canvas.scale || 1; // 2 gives better quality but is slower
 
-      // Generate the full canvas first
-      domToImage
-        .toCanvas(wrapper, {
-          bgcolor,
-          filter,
-          quality: image.quality,
-          width: containerWidth * scale,
-          height: wrapper.scrollHeight * scale,
-          style: {
-            transform: `scale(${scale})`,
-            transformOrigin: 'top left',
-            width: `${containerWidth}px`,
-            height: `${wrapper.scrollHeight}px`,
-          },
-        })
-        .then((canvas: HTMLCanvasElement) => {
-          try {
-            // Create PDF
-            const pdf = new jsPDF('p', 'pt', 'a4'); // Portrait, points, A4
+      // Wait for all canvas elements to render before capturing
+      waitForCanvasRender().then(() => {
+        // Generate the full canvas first
+        domToImage
+          .toCanvas(wrapper, {
+            bgcolor,
+            filter,
+            quality: image.quality,
+            width: containerWidth * scale,
+            height: wrapper.scrollHeight * scale,
+            style: {
+              transform: `scale(${scale})`,
+              transformOrigin: 'top left',
+              width: `${containerWidth}px`,
+              height: `${wrapper.scrollHeight}px`,
+            },
+          })
+          .then((canvas: HTMLCanvasElement) => {
+            try {
+              // Create PDF
+              const pdf = new jsPDF('p', 'pt', 'a4'); // Portrait, points, A4
 
-            const fullHeight = canvas.height;
-            const scaledPageHeight = pageHeight * scale;
+              const fullHeight = canvas.height;
+              const scaledPageHeight = pageHeight * scale;
 
-            // Calculate number of pages needed
-            const numPages = Math.ceil(fullHeight / scaledPageHeight);
+              // Calculate number of pages needed
+              const numPages = Math.ceil(fullHeight / scaledPageHeight);
 
-            let pageAdded = false;
+              let pageAdded = false;
 
-            for (let page = 0; page < numPages; page += 1) {
-              // Calculate y offset for this page
-              const yOffset = page * scaledPageHeight;
+              for (let page = 0; page < numPages; page += 1) {
+                // Calculate y offset for this page
+                const yOffset = page * scaledPageHeight;
 
-              // Fine adjustment for the last page
-              let renderHeight = scaledPageHeight;
-              if (page === numPages - 1) {
-                const remainingHeight = fullHeight - yOffset;
-                // If the remainder is very small, sometimes it's a white border, optionally ignore
-                renderHeight = remainingHeight;
-              }
-
-              // Create canvas for this page
-              const pageCanvas = document.createElement('canvas');
-              pageCanvas.width = canvas.width;
-              pageCanvas.height = renderHeight;
-
-              const pageCtx = pageCanvas.getContext('2d');
-              if (!pageCtx) continue;
-
-              // Copy the relevant portion of the full canvas
-              pageCtx.fillStyle = '#ffffff';
-              pageCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-
-              pageCtx.drawImage(
-                canvas,
-                0,
-                yOffset,
-                canvas.width,
-                renderHeight,
-                0,
-                0,
-                canvas.width,
-                renderHeight,
-              );
-
-              // Skip blank pages logic
-              if (!isCanvasBlank(pageCanvas)) {
-                // Add new page if not the first
-                if (pageAdded) {
-                  pdf.addPage();
+                // Fine adjustment for the last page
+                let renderHeight = scaledPageHeight;
+                if (page === numPages - 1) {
+                  const remainingHeight = fullHeight - yOffset;
+                  // If the remainder is very small, sometimes it's a white border, optionally ignore
+                  renderHeight = remainingHeight;
                 }
 
-                // Calculate dimensions to fit A4 with margins
-                const pdfWidth = A4_WIDTH_PT - margin * 2;
-                const pdfHeight = A4_HEIGHT_PT - margin * 2;
+                // Create canvas for this page
+                const pageCanvas = document.createElement('canvas');
+                pageCanvas.width = canvas.width;
+                pageCanvas.height = renderHeight;
 
-                const imgAspectRatio = pageCanvas.width / pageCanvas.height;
-                const pdfAspectRatio = pdfWidth / pdfHeight;
+                const pageCtx = pageCanvas.getContext('2d');
+                if (!pageCtx) continue;
 
-                let finalWidth;
-                let finalHeight;
-                let xOffset;
-                let yOffset;
+                // Copy the relevant portion of the full canvas
+                pageCtx.fillStyle = '#ffffff';
+                pageCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
 
-                // Fit logic
-                if (imgAspectRatio > pdfAspectRatio) {
-                  // Wider than tall - use full width
-                  finalWidth = pdfWidth;
-                  finalHeight = pdfWidth / imgAspectRatio;
-                  xOffset = margin;
-                  yOffset = margin;
-                } else {
-                  // Taller than wide - use full height or fit width if it's just a segment
-                  finalWidth = pdfWidth;
-                  finalHeight = pdfWidth / imgAspectRatio;
-                  xOffset = margin;
-                  yOffset = margin;
-                }
-
-                // Convert page canvas to image and add to PDF
-                const pageDataUrl = pageCanvas.toDataURL(
-                  `image/${image.type}`,
-                  image.quality,
-                );
-                const imageFormat = image.type === 'png' ? 'PNG' : 'JPEG';
-                pdf.addImage(
-                  pageDataUrl,
-                  imageFormat,
-                  xOffset,
+                pageCtx.drawImage(
+                  canvas,
+                  0,
                   yOffset,
-                  finalWidth,
-                  finalHeight,
+                  canvas.width,
+                  renderHeight,
+                  0,
+                  0,
+                  canvas.width,
+                  renderHeight,
                 );
 
-                pageAdded = true;
-              }
-            }
+                // Skip blank pages logic
+                if (!isCanvasBlank(pageCanvas)) {
+                  // Add new page if not the first
+                  if (pageAdded) {
+                    pdf.addPage();
+                  }
 
-            // Save PDF if at least one page was added
-            if (pageAdded) {
-              pdf.save(filename);
-              resolve();
-            } else {
-              reject(new Error('No content to generate PDF'));
+                  // Calculate dimensions to fit A4 with margins
+                  const pdfWidth = A4_WIDTH_PT - margin * 2;
+                  const pdfHeight = A4_HEIGHT_PT - margin * 2;
+
+                  const imgAspectRatio = pageCanvas.width / pageCanvas.height;
+                  const pdfAspectRatio = pdfWidth / pdfHeight;
+
+                  let finalWidth;
+                  let finalHeight;
+                  let xOffset;
+                  let yOffset;
+
+                  // Fit logic
+                  if (imgAspectRatio > pdfAspectRatio) {
+                    // Wider than tall - use full width
+                    finalWidth = pdfWidth;
+                    finalHeight = pdfWidth / imgAspectRatio;
+                    xOffset = margin;
+                    yOffset = margin;
+                  } else {
+                    // Taller than wide - use full height or fit width if it's just a segment
+                    finalWidth = pdfWidth;
+                    finalHeight = pdfWidth / imgAspectRatio;
+                    xOffset = margin;
+                    yOffset = margin;
+                  }
+
+                  // Convert page canvas to image and add to PDF
+                  const pageDataUrl = pageCanvas.toDataURL(
+                    `image/${image.type}`,
+                    image.quality,
+                  );
+                  const imageFormat = image.type === 'png' ? 'PNG' : 'JPEG';
+                  pdf.addImage(
+                    pageDataUrl,
+                    imageFormat,
+                    xOffset,
+                    yOffset,
+                    finalWidth,
+                    finalHeight,
+                  );
+
+                  pageAdded = true;
+                }
+              }
+
+              // Save PDF if at least one page was added
+              if (pageAdded) {
+                pdf.save(filename);
+                resolve();
+              } else {
+                reject(new Error('No content to generate PDF'));
+              }
+            } catch (pdfError) {
+              logging.error('PDF generation failed:', pdfError);
+              reject(pdfError);
             }
-          } catch (pdfError) {
-            logging.error('PDF generation failed:', pdfError);
-            reject(pdfError);
-          }
-        })
-        .catch((error: Error) => {
-          logging.error('Canvas generation failed:', error);
-          reject(error);
-        })
-        .finally(() => {
-          // Cleanup overlay
-          if (overlay?.parentNode) {
-            overlay.parentNode.removeChild(overlay);
-          }
-        });
+          })
+          .catch((error: Error) => {
+            logging.error('Canvas generation failed:', error);
+            reject(error);
+          })
+          .finally(() => {
+            // Cleanup overlay
+            if (overlay?.parentNode) {
+              overlay.parentNode.removeChild(overlay);
+            }
+          });
+      }); // Close waitForCanvasRender().then()
     } catch (error) {
       logging.error('Custom dom-to-pdf failed:', error);
       // Cleanup overlay in case of early error

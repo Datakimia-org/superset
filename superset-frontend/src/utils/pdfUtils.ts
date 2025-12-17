@@ -33,6 +33,8 @@ export function cloneNode(node: Node): Node {
     const element = clonedNode as Element;
 
     // Handle canvas elements - preserve their content
+    // This includes both 2D canvases and WebGL/WebGL2 canvases (e.g., mapbox, deck.gl)
+    // AND overlay canvases (e.g., CanvasOverlay for mapbox points/heatmaps)
     const canvases = element.querySelectorAll('canvas');
     const originalCanvases = (node as Element).querySelectorAll('canvas');
 
@@ -40,8 +42,37 @@ export function cloneNode(node: Node): Node {
       try {
         const canvas = canvases[i] as HTMLCanvasElement;
         const originalCanvas = originalCanvases[i] as HTMLCanvasElement;
-        const ctx = canvas.getContext('2d');
+
+        // Set canvas dimensions to match original (critical for all canvas types)
+        canvas.width = originalCanvas.width;
+        canvas.height = originalCanvas.height;
+
+        // Copy computed styles to preserve rendering context
+        // This is especially important for overlay canvases
+        const originalStyles = window.getComputedStyle(originalCanvas);
+        if (originalStyles.position) {
+          canvas.style.position = originalStyles.position;
+        }
+        if (originalStyles.top) {
+          canvas.style.top = originalStyles.top;
+        }
+        if (originalStyles.left) {
+          canvas.style.left = originalStyles.left;
+        }
+
+        // Get 2D context for the cloned canvas
+        // This works for both 2D and WebGL canvases because:
+        // 1. For 2D canvases: we copy the 2D content directly
+        // 2. For WebGL canvases: preserveDrawingBuffer is set to true,
+        //    so we can draw the WebGL canvas as an image into a 2D context
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (ctx && originalCanvas) {
+          // Clear the canvas first
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          // drawImage works for any canvas, including WebGL canvases
+          // as long as preserveDrawingBuffer is true (which it is for mapbox/deckgl)
+          // For overlay canvases without preserveDrawingBuffer, we still try to capture
           ctx.drawImage(originalCanvas, 0, 0);
         }
       } catch (error) {
