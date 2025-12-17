@@ -150,7 +150,8 @@ export default function customDomToPdf(
           el.parentElement?.classList.contains('mapboxgl-map') ||
           el.parentElement?.querySelector('.mapboxgl-canvas') !== null;
 
-        const shouldPreserveLayout = isCanvas || isCanvasContainer || (hasCanvas && parentIsMapContainer);
+        const shouldPreserveLayout =
+          isCanvas || isCanvasContainer || (hasCanvas && parentIsMapContainer);
 
         // Reset problematic position values to static (not relative)
         // Static ensures elements flow in normal document flow
