@@ -17,10 +17,10 @@
  * under the License.
  */
 import { SyntheticEvent } from 'react';
-import domToPdf from 'dom-to-pdf';
 import { kebabCase } from 'lodash';
-import { logging, t } from '@superset-ui/core';
+import { logging, t, supersetTheme } from '@superset-ui/core';
 import { addWarningToast } from 'src/components/MessageToasts/actions';
+import customDomToPdf from './customDomToPdf';
 
 /**
  * generate a consistent file stem from a description and date
@@ -57,13 +57,19 @@ export default function downloadAsPdf(
     }
 
     const options = {
-      margin: 10,
+      margin: 0,
       filename: `${generateFileStem(description)}.pdf`,
       image: { type: 'jpeg', quality: 1 },
-      html2canvas: { scale: 2 },
-      excludeClassNames: ['header-controls'],
+      html2canvas: {
+        scale: 2,
+        backgroundColor: supersetTheme.colors.grayscale.light4,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+      },
+      excludeClassNames: ['header-controls', 'mapboxgl-control-container'],
     };
-    return domToPdf(elementToPrint, options)
+    return customDomToPdf(elementToPrint, options)
       .then(() => {
         // nothing to be done
       })

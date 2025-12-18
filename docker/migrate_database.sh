@@ -13,14 +13,14 @@
 set -e  # Exit on error
 
 # Source database configuration
-SOURCE_HOST="${SOURCE_HOST:-34.173.150.167}"
+SOURCE_HOST="${SOURCE_HOST:-34.57.197.145}"
 SOURCE_DB="${SOURCE_DB:-postgres}"
 SOURCE_USER="${SOURCE_USER:-postgres}"
 SOURCE_PASSWORD="${SOURCE_PASSWORD:-superset}"
 SOURCE_PORT="${SOURCE_PORT:-5432}"
 
 # Destination database configuration
-DEST_HOST="${DEST_HOST:-35.232.174.124}"
+DEST_HOST="${DEST_HOST:-34.172.181.25}"
 DEST_DB="${DEST_DB:-superset}"
 DEST_USER="${DEST_USER:-superset}"
 DEST_PASSWORD="${DEST_PASSWORD:-Datakimia2025!}"
@@ -165,10 +165,11 @@ restore_dump() {
     if [ -f "$DUMP_FILE_CUSTOM" ]; then
         print_info "Restoring from custom format dump..."
         # Use --no-owner --no-acl to avoid permission issues
+        # Use --disable-triggers to avoid foreign key constraint issues during restore
         # Since we dropped and recreated the database, we don't need --clean
         # Capture output to check for actual errors vs warnings
         RESTORE_OUTPUT=$(pg_restore -h "$DEST_HOST" -p "$DEST_PORT" -U "$DEST_USER" -d "$DEST_DB" \
-            -v --no-owner --no-acl "$DUMP_FILE_CUSTOM" 2>&1)
+            -v --no-owner --no-acl --disable-triggers "$DUMP_FILE_CUSTOM" 2>&1)
         RESTORE_EXIT_CODE=$?
         
         # Check for critical errors (not just warnings)
@@ -190,6 +191,13 @@ restore_dump() {
                 print_warn "pg_restore exited with code $RESTORE_EXIT_CODE, but database appears to be restored correctly."
                 print_warn "This is often due to non-critical warnings. Review the output above if needed."
             fi
+            
+            # Verify critical tables have data
+            print_info "Verifying critical tables have data..."
+            verify_critical_tables
+            
+            # Fix any empty association tables
+            fix_empty_association_tables
         else
             print_error "Restore verification failed - no tables found in database"
             unset PGPASSWORD
@@ -197,9 +205,18 @@ restore_dump() {
         fi
     elif [ -f "$DUMP_FILE" ]; then
         print_info "Restoring from SQL dump..."
+        # For SQL dumps, disable triggers during restore to avoid foreign key constraint issues
+        # Create a temporary SQL file with the session settings
+        TEMP_RESTORE_SQL="/tmp/restore_$(date +%Y%m%d_%H%M%S).sql"
+        echo "SET session_replication_role = 'replica';" > "$TEMP_RESTORE_SQL"
+        cat "$DUMP_FILE" >> "$TEMP_RESTORE_SQL"
+        echo "SET session_replication_role = 'origin';" >> "$TEMP_RESTORE_SQL"
+        
         SQL_OUTPUT=$(psql -h "$DEST_HOST" -p "$DEST_PORT" -U "$DEST_USER" -d "$DEST_DB" \
-            -f "$DUMP_FILE" -v 2>&1)
+            -f "$TEMP_RESTORE_SQL" -v 2>&1)
         SQL_EXIT_CODE=$?
+        
+        rm -f "$TEMP_RESTORE_SQL"
         
         # Check for critical errors
         if echo "$SQL_OUTPUT" | grep -qi "ERROR:" && ! echo "$SQL_OUTPUT" | grep -qi "ERROR.*already exists"; then
@@ -220,6 +237,13 @@ restore_dump() {
                 print_warn "psql exited with code $SQL_EXIT_CODE, but database appears to be restored correctly."
                 print_warn "This is often due to non-critical warnings. Review the output above if needed."
             fi
+            
+            # Verify critical tables have data
+            print_info "Verifying critical tables have data..."
+            verify_critical_tables
+            
+            # Fix any empty association tables
+            fix_empty_association_tables
         else
             print_error "Restore verification failed - no tables found in database"
             unset PGPASSWORD
@@ -230,6 +254,112 @@ restore_dump() {
         unset PGPASSWORD
         exit 1
     fi
+    
+    unset PGPASSWORD
+}
+
+# Verify critical tables have data
+verify_critical_tables() {
+    export PGPASSWORD="$DEST_PASSWORD"
+    
+    # List of critical tables to verify
+    CRITICAL_TABLES=("ab_user_role" "ab_permission_view_role" "ab_user" "ab_role")
+    
+    for table in "${CRITICAL_TABLES[@]}"; do
+        # Check if table exists
+        TABLE_EXISTS=$(psql -h "$DEST_HOST" -p "$DEST_PORT" -U "$DEST_USER" -d "$DEST_DB" \
+            -t -c "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '$table');" 2>/dev/null | xargs)
+        
+        if [ "$TABLE_EXISTS" = "t" ]; then
+            ROW_COUNT=$(psql -h "$DEST_HOST" -p "$DEST_PORT" -U "$DEST_USER" -d "$DEST_DB" \
+                -t -c "SELECT COUNT(*) FROM $table;" 2>/dev/null | xargs)
+            
+            if [ -n "$ROW_COUNT" ] && [ "$ROW_COUNT" -gt 0 ]; then
+                print_info "✓ Table $table has $ROW_COUNT rows"
+            else
+                print_warn "⚠ Table $table exists but is EMPTY (0 rows)"
+            fi
+        else
+            print_warn "⚠ Table $table does not exist"
+        fi
+    done
+    
+    unset PGPASSWORD
+}
+
+# Fix empty association tables by restoring them from source
+fix_empty_association_tables() {
+    export PGPASSWORD="$SOURCE_PASSWORD"
+    
+    # List of association tables that are critical
+    ASSOCIATION_TABLES=("ab_user_role" "ab_permission_view_role")
+    EMPTY_TABLES=()
+    
+    # Check which tables are empty in destination
+    export PGPASSWORD="$DEST_PASSWORD"
+    for table in "${ASSOCIATION_TABLES[@]}"; do
+        ROW_COUNT=$(psql -h "$DEST_HOST" -p "$DEST_PORT" -U "$DEST_USER" -d "$DEST_DB" \
+            -t -c "SELECT COUNT(*) FROM $table;" 2>/dev/null | xargs)
+        
+        if [ -z "$ROW_COUNT" ] || [ "$ROW_COUNT" -eq 0 ]; then
+            EMPTY_TABLES+=("$table")
+        fi
+    done
+    unset PGPASSWORD
+    
+    if [ ${#EMPTY_TABLES[@]} -eq 0 ]; then
+        print_info "All association tables have data - no fixes needed"
+        return 0
+    fi
+    
+    print_warn "Found ${#EMPTY_TABLES[@]} empty association table(s): ${EMPTY_TABLES[*]}"
+    print_info "Attempting to restore empty tables from source..."
+    
+    export PGPASSWORD="$SOURCE_PASSWORD"
+    for table in "${EMPTY_TABLES[@]}"; do
+        print_info "Restoring $table..."
+        
+        # Create a temporary dump of just this table
+        TEMP_DUMP="/tmp/${table}_dump_$(date +%Y%m%d_%H%M%S).sql"
+        
+        if pg_dump -h "$SOURCE_HOST" -p "$SOURCE_PORT" -U "$SOURCE_USER" -d "$SOURCE_DB" \
+            -t "$table" --data-only --column-inserts -f "$TEMP_DUMP" 2>/dev/null; then
+            
+            if [ -s "$TEMP_DUMP" ]; then
+                export PGPASSWORD="$DEST_PASSWORD"
+                
+                # Clear existing data
+                psql -h "$DEST_HOST" -p "$DEST_PORT" -U "$DEST_USER" -d "$DEST_DB" \
+                    -c "TRUNCATE TABLE $table CASCADE;" 2>/dev/null || \
+                psql -h "$DEST_HOST" -p "$DEST_PORT" -U "$DEST_USER" -d "$DEST_DB" \
+                    -c "DELETE FROM $table;" 2>/dev/null || true
+                
+                # Restore data
+                RESTORE_OUTPUT=$(psql -h "$DEST_HOST" -p "$DEST_PORT" -U "$DEST_USER" -d "$DEST_DB" \
+                    -f "$TEMP_DUMP" 2>&1)
+                
+                # Verify restore
+                ROW_COUNT=$(psql -h "$DEST_HOST" -p "$DEST_PORT" -U "$DEST_USER" -d "$DEST_DB" \
+                    -t -c "SELECT COUNT(*) FROM $table;" 2>/dev/null | xargs)
+                
+                if [ -n "$ROW_COUNT" ] && [ "$ROW_COUNT" -gt 0 ]; then
+                    print_info "✓ Successfully restored $table ($ROW_COUNT rows)"
+                else
+                    print_error "✗ Failed to restore $table - still empty"
+                    print_warn "  Dump file saved at: $TEMP_DUMP (for manual inspection)"
+                    # Don't exit - continue with other tables
+                fi
+                
+                unset PGPASSWORD
+            else
+                print_warn "  Source table $table appears to be empty - skipping"
+            fi
+            
+            rm -f "$TEMP_DUMP"
+        else
+            print_error "  Failed to dump $table from source"
+        fi
+    done
     
     unset PGPASSWORD
 }
