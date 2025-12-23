@@ -30,6 +30,7 @@ export interface FilterHistoryEntry {
   timestamp: number;
   dataMask: DataMaskStateWithId;
   appliedFilters: FilterInfo[];
+  customLabel?: string;
 }
 
 const STORAGE_KEY_PREFIX = 'superset_filter_history_';
@@ -114,5 +115,25 @@ export const deleteFilterHistoryEntry = (
     sessionStorage.setItem(key, JSON.stringify(updatedHistory));
   } catch (error) {
     console.error('Error deleting filter history entry:', error);
+  }
+};
+
+/**
+ * Update the custom label for a specific history entry
+ */
+export const updateFilterHistoryLabel = (
+  dashboardId: number,
+  entryId: string,
+  customLabel: string,
+): void => {
+  try {
+    const history = getFilterHistory(dashboardId);
+    const updatedHistory = history.map(entry =>
+      entry.id === entryId ? { ...entry, customLabel } : entry,
+    );
+    const key = getStorageKey(dashboardId);
+    sessionStorage.setItem(key, JSON.stringify(updatedHistory));
+  } catch (error) {
+    console.error('Error updating filter history label:', error);
   }
 };

@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { css, SupersetTheme, t, DataMaskStateWithId } from '@superset-ui/core';
 import Modal from 'src/components/Modal';
 import Button from 'src/components/Button';
@@ -25,6 +25,7 @@ import Icons from 'src/components/Icons';
 import {
   getFilterHistory,
   deleteFilterHistoryEntry,
+  updateFilterHistoryLabel,
   FilterHistoryEntry,
 } from './filterHistoryStorage';
 
@@ -111,6 +112,49 @@ const emptyStateStyle = (theme: SupersetTheme) => css`
   text-align: center;
 `;
 
+const timestampContainerStyle = (theme: SupersetTheme) => css`
+  display: flex;
+  align-items: center;
+  gap: ${theme.gridUnit}px;
+
+  .edit-icon {
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  &:hover .edit-icon {
+    opacity: 1;
+  }
+`;
+
+const editIconStyle = (theme: SupersetTheme) => css`
+  cursor: pointer;
+  color: ${theme.colors.grayscale.base};
+  display: flex;
+  align-items: center;
+  background: ${theme.colors.grayscale.light5};
+  border: 1px solid ${theme.colors.grayscale.light2};
+  border-radius: ${theme.borderRadius}px;
+  padding: ${theme.gridUnit}px;
+  transition: all 0.2s;
+
+  &:hover {
+    color: ${theme.colors.primary.base};
+    border-color: ${theme.colors.primary.light1};
+    background: ${theme.colors.primary.light5};
+  }
+`;
+
+const labelInputStyle = (theme: SupersetTheme) => css`
+  font-size: ${theme.typography.sizes.s}px;
+  font-weight: ${theme.typography.weights.bold};
+  padding: ${theme.gridUnit}px;
+  border: 1px solid ${theme.colors.primary.base};
+  border-radius: ${theme.borderRadius}px;
+  outline: none;
+  min-width: 200px;
+`;
+
 const formatTimestamp = (timestamp: number): string => {
   const date = new Date(timestamp);
 
@@ -150,6 +194,9 @@ const FilterHistory = ({
   onApplyHistory,
 }: FilterHistoryProps) => {
   const [history, setHistory] = useState<FilterHistoryEntry[]>([]);
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [editingLabel, setEditingLabel] = useState<string>('');
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -157,6 +204,13 @@ const FilterHistory = ({
       setHistory(loadedHistory);
     }
   }, [isOpen, dashboardId]);
+
+  useEffect(() => {
+    if (editingEntryId && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editingEntryId]);
 
   const handleApply = (entry: FilterHistoryEntry) => {
     onApplyHistory(entry.dataMask);
@@ -168,6 +222,39 @@ const FilterHistory = ({
     deleteFilterHistoryEntry(dashboardId, entryId);
     const updatedHistory = history.filter(entry => entry.id !== entryId);
     setHistory(updatedHistory);
+  };
+
+  const handleStartEdit = (e: React.MouseEvent, entry: FilterHistoryEntry) => {
+    e.stopPropagation();
+    setEditingEntryId(entry.id);
+    setEditingLabel(entry.customLabel || formatTimestamp(entry.timestamp));
+  };
+
+  const handleSaveLabel = (entryId: string) => {
+    const trimmedLabel = editingLabel.trim();
+    if (trimmedLabel) {
+      updateFilterHistoryLabel(dashboardId, entryId, trimmedLabel);
+      const updatedHistory = history.map(entry =>
+        entry.id === entryId ? { ...entry, customLabel: trimmedLabel } : entry,
+      );
+      setHistory(updatedHistory);
+    }
+    setEditingEntryId(null);
+    setEditingLabel('');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingEntryId(null);
+    setEditingLabel('');
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent, entryId: string) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      handleSaveLabel(entryId);
+    } else if (e.key === 'Escape') {
+      handleCancelEdit();
+    }
   };
 
   return (
@@ -205,9 +292,34 @@ const FilterHistory = ({
               }}
             >
               <div css={historyItemInfoStyle}>
-                <div css={timestampStyle}>
-                  {formatTimestamp(entry.timestamp)}
-                </div>
+                {editingEntryId === entry.id ? (
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    css={labelInputStyle}
+                    value={editingLabel}
+                    onChange={e => setEditingLabel(e.target.value)}
+                    onBlur={() => handleSaveLabel(entry.id)}
+                    onKeyDown={e => handleKeyDown(e, entry.id)}
+                    maxLength={50}
+                    onClick={e => e.stopPropagation()}
+                  />
+                ) : (
+                  <div css={timestampContainerStyle}>
+                    <div css={timestampStyle}>
+                      {entry.customLabel || formatTimestamp(entry.timestamp)}
+                    </div>
+                    <button
+                      type="button"
+                      className="edit-icon"
+                      css={editIconStyle}
+                      onClick={e => handleStartEdit(e, entry)}
+                      aria-label={t('Edit label')}
+                    >
+                      <Icons.EditAlt iconSize="m" />
+                    </button>
+                  </div>
+                )}
                 <div css={filtersListStyle}>
                   {entry.appliedFilters && entry.appliedFilters.length > 0 ? (
                     entry.appliedFilters.map(filter => (
