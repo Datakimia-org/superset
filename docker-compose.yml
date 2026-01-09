@@ -23,8 +23,10 @@
 # -----------------------------------------------------------------------
 x-superset-user: &superset-user root
 x-superset-depends-on: &superset-depends-on
-  - db
-  - redis
+  db:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
 x-superset-volumes: &superset-volumes
   # /app/pythonpath_docker will be appended to the PYTHONPATH in the final container
   - ./docker:/app/docker
@@ -56,7 +58,7 @@ services:
   redis:
     logging:
       options:
-        labels: "superset_cache"        
+        labels: "superset_cache"
     image: redis:7
     container_name: superset_cache
     restart: unless-stopped
@@ -64,12 +66,16 @@ services:
       - "127.0.0.1:6379:6379"
     volumes:
       - redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   db:
     logging:
-
       options:
-        labels: "superset_db"         
+        labels: "superset_db"
     env_file:
       - path: docker/.env # default
         required: true
@@ -83,6 +89,11 @@ services:
     volumes:
       - db_home:/var/lib/postgresql/data
       - ./docker/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U superset"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   superset:
     logging:
@@ -111,7 +122,7 @@ services:
   superset-websocket:
     logging:
       options:
-        labels: "superset_websocket"        
+        labels: "superset_websocket"
     container_name: superset_websocket
     build: ./superset-websocket
     ports:
@@ -119,7 +130,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     # Mount everything in superset-websocket into container and
     # then exclude node_modules and dist with bogus volume mount.
     # This is necessary because host and container need to have
