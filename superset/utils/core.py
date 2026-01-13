@@ -1263,8 +1263,8 @@ def get_user_id() -> int | None:
     identifier is encoded as a `str` whereas in Superset all identifiers are encoded as
     an `int`.
 
-    For guest users (embedded dashboards), attempts to find a matching user by email
-    in the database and returns that user's ID for logging purposes.
+    Note: GuestUser now includes an id attribute that is retrieved from the database
+    during initialization, so no fallback logic is needed.
 
     returns: The user identifier
     """
@@ -1272,19 +1272,6 @@ def get_user_id() -> int | None:
     try:
         return g.user.id
     except Exception:  # pylint: disable=broad-except
-        # If g.user doesn't have an id (e.g., GuestUser), try to find by email
-        try:
-            # Check if this is a guest user with an email
-            if hasattr(g, 'user') and hasattr(g.user, 'email') and g.user.email:
-                # pylint: disable=import-outside-toplevel
-                from superset import db
-
-                # Query for a user with matching email
-                user = db.session.query(User).filter(User.email == g.user.email).first()
-                if user:
-                    return user.id
-        except Exception:  # pylint: disable=broad-except
-            pass
         return None
 
 

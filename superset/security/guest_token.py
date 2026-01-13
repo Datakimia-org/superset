@@ -16,7 +16,7 @@
 # under the License.
 from typing import Optional, TypedDict, Union
 
-from flask_appbuilder.security.sqla.models import Role
+from flask_appbuilder.security.sqla.models import Role, User
 from flask_login import AnonymousUserMixin
 
 from superset.utils.backports import StrEnum
@@ -26,7 +26,6 @@ class GuestTokenUser(TypedDict, total=False):
     username: str
     first_name: str
     last_name: str
-    email: str
 
 
 class GuestTokenResourceType(StrEnum):
@@ -84,7 +83,34 @@ class GuestUser(AnonymousUserMixin):
         self.username = user.get("username", "guest_user")
         self.first_name = user.get("first_name", "Guest")
         self.last_name = user.get("last_name", "User")
-        self.email = user.get("email")
         self.roles = roles
         self.resources = token["resources"]
         self.rls = token.get("rls_rules", [])
+
+        # Get the real user id from the database for logging purposes
+        self.id = self._get_user_id_from_db()
+
+    def _get_user_id_from_db(self) -> Optional[int]:
+        """
+        Retrieve the user ID from the database by matching username.
+        This allows guest users to be properly logged with their real user ID.
+
+        Username is unique in Superset's User model (enforced by Flask-AppBuilder).
+        """
+        try:
+            # Import here to avoid circular import
+            from superset.extensions import db
+
+            # Find user by username (unique field)
+            if self.username and self.username != "guest_user":
+                user = db.session.query(User).filter(
+                    User.username == self.username
+                ).first()
+                if user:
+                    return user.id
+        except Exception:  # pylint: disable=broad-except
+            # Silently fail and return None if database query fails
+            # This prevents guest token authentication from breaking
+            pass
+
+        return None
