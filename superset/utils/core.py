@@ -1263,9 +1263,6 @@ def get_user_id() -> int | None:
     identifier is encoded as a `str` whereas in Superset all identifiers are encoded as
     an `int`.
 
-    Note: GuestUser now includes an id attribute that is retrieved from the database
-    during initialization, so no fallback logic is needed.
-
     returns: The user identifier
     """
 
