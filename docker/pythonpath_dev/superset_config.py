@@ -185,7 +185,7 @@ THUMBNAIL_EXECUTE_AS = [ExecutorType.SELENIUM]
 
 THUMBNAIL_CACHE_CONFIG: CacheConfig = {
     'CACHE_TYPE': 'redis',
-    'CACHE_DEFAULT_TIMEOUT': None,  # None = no expiration, thumbnails persist until manually regenerated
+    'CACHE_DEFAULT_TIMEOUT': 315360000,  # 10 years in seconds - effectively forever, but compatible with Redis
     'CACHE_KEY_PREFIX': 'thumbnail_',
     'CACHE_REDIS_URL': f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_RESULTS_DB}"
 }
