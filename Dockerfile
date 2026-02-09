@@ -93,7 +93,8 @@ COPY --chown=superset:superset requirements/base.txt requirements/
 RUN --mount=type=cache,target=/root/.cache/pip \
     apt-get update -qq && apt-get install -yqq --no-install-recommends \
       build-essential \
-    && pip install --upgrade setuptools pip \
+    && pip install --upgrade pip \
+    && pip install "setuptools>=40.9.0,<75.0.0" \
     && pip install -r requirements/base.txt \
     && apt-get autoremove -yqq --purge build-essential \
     && rm -rf /var/lib/apt/lists/*
@@ -104,7 +105,8 @@ COPY --chown=superset:superset --from=superset-node /app/superset/static/assets 
 ## Lastly, let's install superset itself
 COPY --chown=superset:superset superset superset
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -e .
+    pip install -e . \
+    && pip install --no-cache-dir "setuptools>=40.9.0,<75.0.0"
 
 # Copy the .json translations from the frontend layer
 COPY --chown=superset:superset --from=superset-node /app/superset/translations superset/translations
