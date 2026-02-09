@@ -405,3 +405,5 @@ zipp==3.19.0
     # via importlib-metadata
 zstandard==0.22.0
     # via flask-compress
+setuptools>=40.9.0
+    # via -r requirements/base.in
