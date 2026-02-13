@@ -63,6 +63,9 @@ try:
             Only overrides maxsize if not explicitly provided, allowing callers to
             set their own values if needed. This ensures we don't break code that
             explicitly sets maxsize for specific use cases.
+            
+            The maxsize parameter is passed to HTTPConnectionPool instances created
+            by PoolManager, increasing the connection pool size from default 10 to 50.
             """
             # Only override maxsize if not explicitly set
             # This allows other code to set custom values if needed
@@ -70,7 +73,14 @@ try:
                 connection_pool_kw['maxsize'] = 50
             
             # Call original with all arguments preserved
-            return PoolManager._original_init_patched(self, num_pools=num_pools, headers=headers, **connection_pool_kw)
+            # PoolManager will pass connection_pool_kw to HTTPConnectionPool when creating pools
+            try:
+                return PoolManager._original_init_patched(self, num_pools=num_pools, headers=headers, **connection_pool_kw)
+            except TypeError as e:
+                # If signature mismatch, log and re-raise with context
+                print(f"⚠️  Error in patched PoolManager.__init__: {e}")
+                print(f"   num_pools={num_pools}, headers={headers}, connection_pool_kw keys={list(connection_pool_kw.keys())}")
+                raise
         
         # Apply patch
         PoolManager.__init__ = patched_pool_manager_init
