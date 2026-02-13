@@ -3,6 +3,9 @@ BigQuery client caching optimization for Superset.
 This module patches Superset's Database class to cache SQLAlchemy engines more aggressively,
 reducing BigQuery client initialization overhead from 150-500ms to <10ms for cached engines.
 
+This module also increases urllib3's HTTPConnectionPool maxsize to handle more concurrent
+BigQuery API requests, preventing "Connection pool is full" errors.
+
 This module is automatically imported when Superset starts (via PYTHONPATH).
 It does NOT overwrite your existing superset_config.py.
 
@@ -16,6 +19,50 @@ IMPORTANT SECURITY NOTES:
 import functools
 import threading
 from typing import Dict, Optional, Any
+
+# Patch urllib3 connection pool size for BigQuery API calls
+# Default maxsize is 10, which causes "Connection pool is full" errors under load
+# Increasing to 50 allows more concurrent BigQuery requests
+try:
+    import urllib3
+    from urllib3.poolmanager import PoolManager
+    from urllib3.connectionpool import HTTPConnectionPool
+    
+    # Store original __init__ methods
+    _original_pool_manager_init = PoolManager.__init__
+    _original_http_pool_init = HTTPConnectionPool.__init__
+    _urllib3_patch_applied = False
+    
+    def _apply_urllib3_pool_patch():
+        """Apply urllib3 connection pool size patch."""
+        global _urllib3_patch_applied
+        if _urllib3_patch_applied:
+            return
+        
+        def patched_pool_manager_init(self, num_pools=10, headers=None, **connection_pool_kw):
+            """Patched PoolManager.__init__ with increased maxsize."""
+            if 'maxsize' not in connection_pool_kw:
+                connection_pool_kw['maxsize'] = 50
+            return _original_pool_manager_init(self, num_pools=num_pools, headers=headers, **connection_pool_kw)
+        
+        def patched_http_pool_init(self, host, port=None, **kw):
+            """Patched HTTPConnectionPool.__init__ with increased maxsize."""
+            if 'maxsize' not in kw:
+                kw['maxsize'] = 50
+            return _original_http_pool_init(self, host, port=port, **kw)
+        
+        PoolManager.__init__ = patched_pool_manager_init
+        HTTPConnectionPool.__init__ = patched_http_pool_init
+        _urllib3_patch_applied = True
+        print("✅ urllib3 connection pool size increased to 50 for BigQuery API calls")
+    
+    # Apply patch immediately
+    _apply_urllib3_pool_patch()
+    
+except Exception as e:
+    print(f"⚠️  Warning: Could not apply urllib3 connection pool patch: {e}")
+    import traceback
+    traceback.print_exc()
 
 # Thread-safe cache for SQLAlchemy engines
 _engine_cache: Dict[str, Any] = {}
