@@ -23,45 +23,69 @@ from typing import Dict, Optional, Any
 # Patch urllib3 connection pool size for BigQuery API calls
 # Default maxsize is 10, which causes "Connection pool is full" errors under load
 # Increasing to 50 allows more concurrent BigQuery requests
+# 
+# SAFETY CONSIDERATIONS:
+# - Only patches PoolManager (used by Google Cloud clients via requests library)
+# - Only applies to new pools created after patch is applied
+# - Respects explicit maxsize values if provided (won't override if caller sets it)
+# - Fails gracefully if urllib3 structure changes
+# - Uses functools.wraps to preserve function metadata
 try:
     import urllib3
     from urllib3.poolmanager import PoolManager
-    from urllib3.connectionpool import HTTPConnectionPool
+    import functools
     
-    # Store original __init__ methods
-    _original_pool_manager_init = PoolManager.__init__
-    _original_http_pool_init = HTTPConnectionPool.__init__
-    _urllib3_patch_applied = False
+    # Store original __init__ method
+    if not hasattr(PoolManager, '_original_init_patched'):
+        PoolManager._original_init_patched = PoolManager.__init__
+        _urllib3_patch_applied = False
+    else:
+        # Already patched, skip
+        _urllib3_patch_applied = True
     
     def _apply_urllib3_pool_patch():
-        """Apply urllib3 connection pool size patch."""
+        """
+        Apply urllib3 connection pool size patch for Google Cloud API calls.
+        
+        This patch only affects PoolManager, which is used by Google Cloud client libraries
+        (including BigQuery) via the requests library. PoolManager creates HTTPConnectionPool
+        instances internally, so patching PoolManager affects all pools it creates.
+        """
         global _urllib3_patch_applied
         if _urllib3_patch_applied:
             return
         
+        @functools.wraps(PoolManager._original_init_patched)
         def patched_pool_manager_init(self, num_pools=10, headers=None, **connection_pool_kw):
-            """Patched PoolManager.__init__ with increased maxsize."""
+            """
+            Patched PoolManager.__init__ with increased maxsize for Google Cloud APIs.
+            
+            Only overrides maxsize if not explicitly provided, allowing callers to
+            set their own values if needed. This ensures we don't break code that
+            explicitly sets maxsize for specific use cases.
+            """
+            # Only override maxsize if not explicitly set
+            # This allows other code to set custom values if needed
             if 'maxsize' not in connection_pool_kw:
                 connection_pool_kw['maxsize'] = 50
-            return _original_pool_manager_init(self, num_pools=num_pools, headers=headers, **connection_pool_kw)
+            
+            # Call original with all arguments preserved
+            return PoolManager._original_init_patched(self, num_pools=num_pools, headers=headers, **connection_pool_kw)
         
-        def patched_http_pool_init(self, *args, **kw):
-            """Patched HTTPConnectionPool.__init__ with increased maxsize."""
-            # HTTPConnectionPool.__init__ has many positional args, so use *args, **kw
-            # Only override maxsize if not explicitly provided
-            if 'maxsize' not in kw:
-                kw['maxsize'] = 50
-            return _original_http_pool_init(self, *args, **kw)
-        
+        # Apply patch
         PoolManager.__init__ = patched_pool_manager_init
-        HTTPConnectionPool.__init__ = patched_http_pool_init
         _urllib3_patch_applied = True
-        print("✅ urllib3 connection pool size increased to 50 for BigQuery API calls")
+        print("✅ urllib3 PoolManager maxsize increased to 50 for Google Cloud API calls (BigQuery)")
     
-    # Apply patch immediately
+    # Apply patch immediately (at import time)
+    # This ensures it's applied before any Google Cloud clients are initialized
     _apply_urllib3_pool_patch()
     
+except ImportError:
+    # urllib3 not available - this is fine, just skip the patch
+    print("⚠️  urllib3 not available, skipping connection pool patch")
 except Exception as e:
+    # Log error but don't fail - allow Superset to start even if patch fails
     print(f"⚠️  Warning: Could not apply urllib3 connection pool patch: {e}")
     import traceback
     traceback.print_exc()
