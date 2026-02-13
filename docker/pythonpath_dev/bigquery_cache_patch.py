@@ -45,11 +45,13 @@ try:
                 connection_pool_kw['maxsize'] = 50
             return _original_pool_manager_init(self, num_pools=num_pools, headers=headers, **connection_pool_kw)
         
-        def patched_http_pool_init(self, host, port=None, **kw):
+        def patched_http_pool_init(self, *args, **kw):
             """Patched HTTPConnectionPool.__init__ with increased maxsize."""
+            # HTTPConnectionPool.__init__ has many positional args, so use *args, **kw
+            # Only override maxsize if not explicitly provided
             if 'maxsize' not in kw:
                 kw['maxsize'] = 50
-            return _original_http_pool_init(self, host, port=port, **kw)
+            return _original_http_pool_init(self, *args, **kw)
         
         PoolManager.__init__ = patched_pool_manager_init
         HTTPConnectionPool.__init__ = patched_http_pool_init
