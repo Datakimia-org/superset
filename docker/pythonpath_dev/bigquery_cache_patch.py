@@ -3,6 +3,9 @@ BigQuery client caching optimization for Superset.
 This module patches Superset's Database class to cache SQLAlchemy engines more aggressively,
 reducing BigQuery client initialization overhead from 150-500ms to <10ms for cached engines.
 
+This module also increases urllib3's HTTPConnectionPool maxsize to handle more concurrent
+BigQuery API requests, preventing "Connection pool is full" errors.
+
 This module is automatically imported when Superset starts (via PYTHONPATH).
 It does NOT overwrite your existing superset_config.py.
 
@@ -16,6 +19,86 @@ IMPORTANT SECURITY NOTES:
 import functools
 import threading
 from typing import Dict, Optional, Any
+
+# Patch urllib3 connection pool size for BigQuery API calls
+# Default maxsize is 10, which causes "Connection pool is full" errors under load
+# Increasing to 50 allows more concurrent BigQuery requests
+# 
+# SAFETY CONSIDERATIONS:
+# - Only patches PoolManager (used by Google Cloud clients via requests library)
+# - Only applies to new pools created after patch is applied
+# - Respects explicit maxsize values if provided (won't override if caller sets it)
+# - Fails gracefully if urllib3 structure changes
+# - Uses functools.wraps to preserve function metadata
+try:
+    import urllib3
+    from urllib3.poolmanager import PoolManager
+    import functools
+    
+    # Store original __init__ method
+    if not hasattr(PoolManager, '_original_init_patched'):
+        PoolManager._original_init_patched = PoolManager.__init__
+        _urllib3_patch_applied = False
+    else:
+        # Already patched, skip
+        _urllib3_patch_applied = True
+    
+    def _apply_urllib3_pool_patch():
+        """
+        Apply urllib3 connection pool size patch for Google Cloud API calls.
+        
+        This patch only affects PoolManager, which is used by Google Cloud client libraries
+        (including BigQuery) via the requests library. PoolManager creates HTTPConnectionPool
+        instances internally, so patching PoolManager affects all pools it creates.
+        """
+        global _urllib3_patch_applied
+        if _urllib3_patch_applied:
+            return
+        
+        @functools.wraps(PoolManager._original_init_patched)
+        def patched_pool_manager_init(self, num_pools=10, headers=None, **connection_pool_kw):
+            """
+            Patched PoolManager.__init__ with increased maxsize for Google Cloud APIs.
+            
+            Only overrides maxsize if not explicitly provided, allowing callers to
+            set their own values if needed. This ensures we don't break code that
+            explicitly sets maxsize for specific use cases.
+            
+            The maxsize parameter is passed to HTTPConnectionPool instances created
+            by PoolManager, increasing the connection pool size from default 10 to 50.
+            """
+            # Only override maxsize if not explicitly set
+            # This allows other code to set custom values if needed
+            if 'maxsize' not in connection_pool_kw:
+                connection_pool_kw['maxsize'] = 50
+            
+            # Call original with all arguments preserved
+            # PoolManager will pass connection_pool_kw to HTTPConnectionPool when creating pools
+            try:
+                return PoolManager._original_init_patched(self, num_pools=num_pools, headers=headers, **connection_pool_kw)
+            except TypeError as e:
+                # If signature mismatch, log and re-raise with context
+                print(f"⚠️  Error in patched PoolManager.__init__: {e}")
+                print(f"   num_pools={num_pools}, headers={headers}, connection_pool_kw keys={list(connection_pool_kw.keys())}")
+                raise
+        
+        # Apply patch
+        PoolManager.__init__ = patched_pool_manager_init
+        _urllib3_patch_applied = True
+        print("✅ urllib3 PoolManager maxsize increased to 50 for Google Cloud API calls (BigQuery)")
+    
+    # Apply patch immediately (at import time)
+    # This ensures it's applied before any Google Cloud clients are initialized
+    _apply_urllib3_pool_patch()
+    
+except ImportError:
+    # urllib3 not available - this is fine, just skip the patch
+    print("⚠️  urllib3 not available, skipping connection pool patch")
+except Exception as e:
+    # Log error but don't fail - allow Superset to start even if patch fails
+    print(f"⚠️  Warning: Could not apply urllib3 connection pool patch: {e}")
+    import traceback
+    traceback.print_exc()
 
 # Thread-safe cache for SQLAlchemy engines
 _engine_cache: Dict[str, Any] = {}
