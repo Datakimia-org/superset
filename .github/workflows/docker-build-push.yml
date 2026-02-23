@@ -14,9 +14,9 @@ on:
   workflow_dispatch:
 
 env:
-  PROJECT_ID: client-x-429512
+  PROJECT_ID: infra-producto
   REGISTRY: us-central1-docker.pkg.dev
-  REPOSITORY: client-x-registry
+  REPOSITORY: portal-registry
   IMAGE_NAME: superset
 
 jobs:
