@@ -258,8 +258,7 @@ const FilterBar: FC<FiltersBarProps> = ({
     const filterIds = Object.keys(dataMaskApplied);
     const appliedFilters = filterIds
       .filter(
-        filterId =>
-          dataMaskApplied[filterId]?.filterState?.value !== undefined,
+        filterId => dataMaskApplied[filterId]?.filterState?.value !== undefined,
       )
       .map(filterId => ({
         id: filterId,

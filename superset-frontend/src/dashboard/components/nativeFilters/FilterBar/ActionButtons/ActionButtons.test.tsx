@@ -24,6 +24,8 @@ import ActionButtons from './index';
 const createProps = () => ({
   onApply: jest.fn(),
   onClearAll: jest.fn(),
+  onSave: jest.fn(),
+  isSaveDisabled: false,
   dataMaskSelected: {
     DefaultsID: {
       filterState: {

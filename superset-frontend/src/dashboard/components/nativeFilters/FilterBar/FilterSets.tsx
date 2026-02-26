@@ -167,7 +167,10 @@ const formatTimestamp = (timestamp: number): string => {
     minute: '2-digit',
     hour12: false,
   };
-  return `${date.toLocaleDateString(undefined, dateOptions)}, ${date.toLocaleTimeString(undefined, timeOptions)}`;
+  return `${date.toLocaleDateString(
+    undefined,
+    dateOptions,
+  )}, ${date.toLocaleTimeString(undefined, timeOptions)}`;
 };
 
 const formatFilterValue = (value: any): string => {
