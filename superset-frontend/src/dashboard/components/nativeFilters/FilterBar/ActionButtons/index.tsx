@@ -36,9 +36,11 @@ interface ActionButtonsProps {
   onApply: () => void;
   onClearAll: () => void;
   onHistory?: () => void;
+  onSave: () => void;
   dataMaskSelected: DataMaskState;
   dataMaskApplied: DataMaskStateWithId;
   isApplyDisabled: boolean;
+  isSaveDisabled: boolean;
   filterBarOrientation?: FilterBarOrientation;
 }
 
@@ -86,6 +88,10 @@ const verticalStyle = (theme: SupersetTheme, width: number) => css`
     margin-bottom: ${theme.gridUnit * 3}px;
   }
 
+  & > .filter-save-button {
+    margin-bottom: ${theme.gridUnit * 3}px;
+  }
+
   & > .filter-history-button {
     margin-bottom: ${theme.gridUnit * 3}px;
   }
@@ -112,9 +118,11 @@ const ActionButtons = ({
   onApply,
   onClearAll,
   onHistory,
+  onSave,
   dataMaskApplied,
   dataMaskSelected,
   isApplyDisabled,
+  isSaveDisabled,
   filterBarOrientation = FilterBarOrientation.Vertical,
 }: ActionButtonsProps) => {
   const isClearAllEnabled = useMemo(
@@ -148,13 +156,22 @@ const ActionButtons = ({
         {isVertical ? t('Apply filters') : t('Apply')}
       </Button>
       <Button
+        disabled={isSaveDisabled}
+        buttonStyle="primary"
+        className="filter-save-button"
+        onClick={onSave}
+        {...getFilterBarTestId('save-button')}
+      >
+        {t('Save')}
+      </Button>
+      <Button
         buttonStyle="secondary"
         buttonSize="small"
         className="filter-history-button"
         onClick={onHistory}
         {...getFilterBarTestId('history-button')}
       >
-        {t('History')}
+        {t('Saved filters')}
       </Button>
       <Button
         disabled={!isClearAllEnabled}

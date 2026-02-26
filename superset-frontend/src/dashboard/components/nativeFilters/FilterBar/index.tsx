@@ -65,8 +65,9 @@ import ActionButtons from './ActionButtons';
 import Horizontal from './Horizontal';
 import Vertical from './Vertical';
 import { useSelectFiltersInScope } from '../state';
-import { saveFilterHistory } from './filterHistoryStorage';
-import FilterHistory from './FilterHistory';
+import { saveFilterSet, FilterInfo } from './filterSetsStorage';
+import FilterSets from './FilterSets';
+import SaveFilterModal from './SaveFilterModal';
 
 // FilterBar is just being hidden as it must still
 // render fully due to encapsulated logics
@@ -143,7 +144,13 @@ const FilterBar: FC<FiltersBarProps> = ({
     useImmer<DataMaskStateWithId>(dataMaskApplied);
   const dispatch = useDispatch();
   const [updateKey, setUpdateKey] = useState(0);
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [dataMaskSaved, setDataMaskSaved] =
+    useState<DataMaskStateWithId>(dataMaskApplied);
+  const [isFilterSetsOpen, setIsFilterSetsOpen] = useState(false);
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [pendingAppliedFilters, setPendingAppliedFilters] = useState<
+    FilterInfo[]
+  >([]);
   const tabId = useTabId();
   const filters = useFilters();
   const previousFilters = usePrevious(filters);
@@ -235,38 +242,50 @@ const FilterBar: FC<FiltersBarProps> = ({
     if (user?.userId) {
       publishDataMask(history, dashboardId, updateKey, dataMaskApplied, tabId);
     } // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dashboardId, dataMaskAppliedText, history, updateKey, tabId]);
+  }, [dashboardId, history, updateKey, tabId]);
 
   const handleApply = useCallback(() => {
     dispatch(logEvent(LOG_ACTIONS_CHANGE_DASHBOARD_FILTER, {}));
     const filterIds = Object.keys(dataMaskSelected);
-    setUpdateKey(1);
     filterIds.forEach(filterId => {
       if (dataMaskSelected[filterId]) {
         dispatch(updateDataMask(filterId, dataMaskSelected[filterId]));
       }
     });
+  }, [dataMaskSelected, dispatch]);
 
-    // Save filter state to history
-    if (dashboardId) {
-      // Extract applied filter information
-      const appliedFilters = filterIds
-        .filter(
-          filterId =>
-            dataMaskSelected[filterId]?.filterState?.value !== undefined,
-        )
-        .map(filterId => ({
-          id: filterId,
-          name: filters[filterId]?.name || filterId,
-          value: dataMaskSelected[filterId]?.filterState?.value,
-        }));
+  const handleSave = useCallback(() => {
+    const filterIds = Object.keys(dataMaskApplied);
+    const appliedFilters = filterIds
+      .filter(
+        filterId =>
+          dataMaskApplied[filterId]?.filterState?.value !== undefined,
+      )
+      .map(filterId => ({
+        id: filterId,
+        name: filters[filterId]?.name || filterId,
+        value: dataMaskApplied[filterId]?.filterState?.value,
+      }));
+    setPendingAppliedFilters(appliedFilters);
+    setIsSaveModalOpen(true);
+  }, [dataMaskApplied, filters]);
 
-      // Only save to history if there are filters with values
-      if (appliedFilters.length > 0) {
-        saveFilterHistory(dashboardId, dataMaskSelected, appliedFilters);
+  const handleConfirmSave = useCallback(
+    (label: string) => {
+      setIsSaveModalOpen(false);
+      if (dashboardId && pendingAppliedFilters.length > 0) {
+        saveFilterSet(
+          dashboardId,
+          dataMaskApplied,
+          pendingAppliedFilters,
+          label || undefined,
+        );
       }
-    }
-  }, [dataMaskSelected, dispatch, dashboardId, filters]);
+      setUpdateKey(prev => prev + 1);
+      setDataMaskSaved(dataMaskApplied);
+    },
+    [dashboardId, dataMaskApplied, pendingAppliedFilters],
+  );
 
   const handleClearAll = useCallback(() => {
     const clearDataMaskIds: string[] = [];
@@ -290,29 +309,25 @@ const FilterBar: FC<FiltersBarProps> = ({
     }
   }, [dataMaskSelected, dispatch, filtersInScope, setDataMaskSelected]);
 
-  const handleHistory = useCallback(() => {
-    setIsHistoryOpen(true);
+  const handleFilterSets = useCallback(() => {
+    setIsFilterSetsOpen(true);
   }, []);
 
-  const handleCloseHistory = useCallback(() => {
-    setIsHistoryOpen(false);
+  const handleCloseFilterSets = useCallback(() => {
+    setIsFilterSetsOpen(false);
   }, []);
 
-  const handleApplyHistory = useCallback(
-    (historicalDataMask: DataMaskStateWithId) => {
-      // Update selected data mask with historical data
-      setDataMaskSelected(() => historicalDataMask);
-
-      // Apply the historical filters
-      const filterIds = Object.keys(historicalDataMask);
-      setUpdateKey(1);
+  const handleApplyFilterSet = useCallback(
+    (filterSetDataMask: DataMaskStateWithId) => {
+      setDataMaskSelected(() => filterSetDataMask);
+      const filterIds = Object.keys(filterSetDataMask);
       filterIds.forEach(filterId => {
-        if (historicalDataMask[filterId]) {
-          dispatch(updateDataMask(filterId, historicalDataMask[filterId]));
+        if (filterSetDataMask[filterId]) {
+          dispatch(updateDataMask(filterId, filterSetDataMask[filterId]));
         }
       });
-
       dispatch(logEvent(LOG_ACTIONS_CHANGE_DASHBOARD_FILTER, {}));
+      setDataMaskSaved(filterSetDataMask);
     },
     [dispatch, setDataMaskSelected],
   );
@@ -323,6 +338,14 @@ const FilterBar: FC<FiltersBarProps> = ({
     dataMaskApplied,
     filtersInScope.filter(isNativeFilter),
   );
+  const hasAppliedFilters = Object.values(dataMaskApplied).some(mask => {
+    const value = mask?.filterState?.value;
+    if (value === undefined || value === null) return false;
+    if (Array.isArray(value) && value.length === 0) return false;
+    return true;
+  });
+  const isSaveDisabled =
+    !hasAppliedFilters || isEqual(dataMaskApplied, dataMaskSaved);
   const isInitialized = useInitialization();
 
   const actions = (
@@ -331,10 +354,12 @@ const FilterBar: FC<FiltersBarProps> = ({
       width={verticalConfig?.width}
       onApply={handleApply}
       onClearAll={handleClearAll}
-      onHistory={handleHistory}
+      onHistory={handleFilterSets}
+      onSave={handleSave}
       dataMaskSelected={dataMaskSelected}
       dataMaskApplied={dataMaskApplied}
       isApplyDisabled={isApplyDisabled}
+      isSaveDisabled={isSaveDisabled}
     />
   );
 
@@ -372,11 +397,17 @@ const FilterBar: FC<FiltersBarProps> = ({
       ) : (
         filterBarComponent
       )}
-      <FilterHistory
-        isOpen={isHistoryOpen}
-        onClose={handleCloseHistory}
+      <FilterSets
+        isOpen={isFilterSetsOpen}
+        onClose={handleCloseFilterSets}
         dashboardId={dashboardId}
-        onApplyHistory={handleApplyHistory}
+        onApplyFilterSet={handleApplyFilterSet}
+      />
+      <SaveFilterModal
+        isOpen={isSaveModalOpen}
+        appliedFilters={pendingAppliedFilters}
+        onConfirm={handleConfirmSave}
+        onClose={() => setIsSaveModalOpen(false)}
       />
     </>
   );

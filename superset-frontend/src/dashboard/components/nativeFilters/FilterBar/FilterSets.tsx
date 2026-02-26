@@ -23,26 +23,26 @@ import Button from 'src/components/Button';
 import { Empty } from 'antd';
 import Icons from 'src/components/Icons';
 import {
-  getFilterHistory,
-  deleteFilterHistoryEntry,
-  updateFilterHistoryLabel,
-  FilterHistoryEntry,
-} from './filterHistoryStorage';
+  getFilterSets,
+  deleteFilterSetEntry,
+  updateFilterSetLabel,
+  FilterSetEntry,
+} from './filterSetsStorage';
 
-interface FilterHistoryProps {
+interface FilterSetsProps {
   isOpen: boolean;
   onClose: () => void;
   dashboardId: number;
-  onApplyHistory: (dataMask: DataMaskStateWithId) => void;
+  onApplyFilterSet: (dataMask: DataMaskStateWithId) => void;
 }
 
-const historyContainerStyle = (theme: SupersetTheme) => css`
+const containerStyle = (theme: SupersetTheme) => css`
   max-height: 500px;
   overflow-y: auto;
   padding: ${theme.gridUnit * 2}px 0;
 `;
 
-const historyItemStyle = (theme: SupersetTheme) => css`
+const itemStyle = (theme: SupersetTheme) => css`
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -60,14 +60,14 @@ const historyItemStyle = (theme: SupersetTheme) => css`
   }
 `;
 
-const historyItemInfoStyle = (theme: SupersetTheme) => css`
+const itemInfoStyle = (theme: SupersetTheme) => css`
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: ${theme.gridUnit}px;
 `;
 
-const timestampStyle = (theme: SupersetTheme) => css`
+const labelStyle = (theme: SupersetTheme) => css`
   font-size: ${theme.typography.sizes.s}px;
   color: ${theme.colors.grayscale.base};
   font-weight: ${theme.typography.weights.bold};
@@ -112,7 +112,7 @@ const emptyStateStyle = (theme: SupersetTheme) => css`
   text-align: center;
 `;
 
-const timestampContainerStyle = (theme: SupersetTheme) => css`
+const labelContainerStyle = (theme: SupersetTheme) => css`
   display: flex;
   align-items: center;
   gap: ${theme.gridUnit}px;
@@ -157,24 +157,17 @@ const labelInputStyle = (theme: SupersetTheme) => css`
 
 const formatTimestamp = (timestamp: number): string => {
   const date = new Date(timestamp);
-
-  // Use browser's locale settings to format date and time
   const dateOptions: Intl.DateTimeFormatOptions = {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   };
-
   const timeOptions: Intl.DateTimeFormatOptions = {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
   };
-
-  const formattedDate = date.toLocaleDateString(undefined, dateOptions);
-  const formattedTime = date.toLocaleTimeString(undefined, timeOptions);
-
-  return `${formattedDate}, ${formattedTime}`;
+  return `${date.toLocaleDateString(undefined, dateOptions)}, ${date.toLocaleTimeString(undefined, timeOptions)}`;
 };
 
 const formatFilterValue = (value: any): string => {
@@ -187,21 +180,20 @@ const formatFilterValue = (value: any): string => {
   return String(value);
 };
 
-const FilterHistory = ({
+const FilterSets = ({
   isOpen,
   onClose,
   dashboardId,
-  onApplyHistory,
-}: FilterHistoryProps) => {
-  const [history, setHistory] = useState<FilterHistoryEntry[]>([]);
+  onApplyFilterSet,
+}: FilterSetsProps) => {
+  const [filterSets, setFilterSets] = useState<FilterSetEntry[]>([]);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState<string>('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
-      const loadedHistory = getFilterHistory(dashboardId);
-      setHistory(loadedHistory);
+      setFilterSets(getFilterSets(dashboardId));
     }
   }, [isOpen, dashboardId]);
 
@@ -212,19 +204,18 @@ const FilterHistory = ({
     }
   }, [editingEntryId]);
 
-  const handleApply = (entry: FilterHistoryEntry) => {
-    onApplyHistory(entry.dataMask);
+  const handleApply = (entry: FilterSetEntry) => {
+    onApplyFilterSet(entry.dataMask);
     onClose();
   };
 
   const handleDelete = (e: React.MouseEvent, entryId: string) => {
     e.stopPropagation();
-    deleteFilterHistoryEntry(dashboardId, entryId);
-    const updatedHistory = history.filter(entry => entry.id !== entryId);
-    setHistory(updatedHistory);
+    deleteFilterSetEntry(dashboardId, entryId);
+    setFilterSets(prev => prev.filter(e => e.id !== entryId));
   };
 
-  const handleStartEdit = (e: React.MouseEvent, entry: FilterHistoryEntry) => {
+  const handleStartEdit = (e: React.MouseEvent, entry: FilterSetEntry) => {
     e.stopPropagation();
     setEditingEntryId(entry.id);
     setEditingLabel(entry.customLabel || formatTimestamp(entry.timestamp));
@@ -233,11 +224,12 @@ const FilterHistory = ({
   const handleSaveLabel = (entryId: string) => {
     const trimmedLabel = editingLabel.trim();
     if (trimmedLabel) {
-      updateFilterHistoryLabel(dashboardId, entryId, trimmedLabel);
-      const updatedHistory = history.map(entry =>
-        entry.id === entryId ? { ...entry, customLabel: trimmedLabel } : entry,
+      updateFilterSetLabel(dashboardId, entryId, trimmedLabel);
+      setFilterSets(prev =>
+        prev.map(e =>
+          e.id === entryId ? { ...e, customLabel: trimmedLabel } : e,
+        ),
       );
-      setHistory(updatedHistory);
     }
     setEditingEntryId(null);
     setEditingLabel('');
@@ -261,7 +253,7 @@ const FilterHistory = ({
     <Modal
       show={isOpen}
       onHide={onClose}
-      title={t('Filter History')}
+      title={t('Saved filters')}
       footer={
         <Button onClick={onClose} buttonStyle="primary">
           {t('Close')}
@@ -269,19 +261,19 @@ const FilterHistory = ({
       }
       width="600px"
     >
-      <div css={historyContainerStyle}>
-        {history.length === 0 ? (
+      <div css={containerStyle}>
+        {filterSets.length === 0 ? (
           <div css={emptyStateStyle}>
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={t('No filter history available')}
+              description={t('No saved filters yet')}
             />
           </div>
         ) : (
-          history.map(entry => (
+          filterSets.map(entry => (
             <div
               key={entry.id}
-              css={historyItemStyle}
+              css={itemStyle}
               onClick={() => handleApply(entry)}
               role="button"
               tabIndex={0}
@@ -291,7 +283,7 @@ const FilterHistory = ({
                 }
               }}
             >
-              <div css={historyItemInfoStyle}>
+              <div css={itemInfoStyle}>
                 {editingEntryId === entry.id ? (
                   <input
                     ref={inputRef}
@@ -305,8 +297,8 @@ const FilterHistory = ({
                     onClick={e => e.stopPropagation()}
                   />
                 ) : (
-                  <div css={timestampContainerStyle}>
-                    <div css={timestampStyle}>
+                  <div css={labelContainerStyle}>
+                    <div css={labelStyle}>
                       {entry.customLabel || formatTimestamp(entry.timestamp)}
                     </div>
                     <button
@@ -351,4 +343,4 @@ const FilterHistory = ({
   );
 };
 
-export default FilterHistory;
+export default FilterSets;
