@@ -163,7 +163,8 @@ class CeleryConfig:
 CELERY_CONFIG = CeleryConfig
 
 FEATURE_FLAGS = {
-    "ALERT_REPORTS": True, 
+    "DASHBOARD_FILTERS_SAVE": False,
+    "ALERT_REPORTS": True,
     "KV_STORE": True,
     "SCHEDULED_QUERIES": True,    
     "EMBEDDED_SUPERSET": True, 

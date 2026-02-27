@@ -21,6 +21,8 @@ import {
   css,
   DataMaskState,
   DataMaskStateWithId,
+  FeatureFlag,
+  isFeatureEnabled,
   t,
   isDefined,
   SupersetTheme,
@@ -136,6 +138,7 @@ const ActionButtons = ({
     [dataMaskApplied, dataMaskSelected],
   );
   const isVertical = filterBarOrientation === FilterBarOrientation.Vertical;
+  const isSaveEnabled = isFeatureEnabled(FeatureFlag.DashboardFiltersSave);
 
   return (
     <div
@@ -155,24 +158,28 @@ const ActionButtons = ({
       >
         {isVertical ? t('Apply filters') : t('Apply')}
       </Button>
-      <Button
-        disabled={isSaveDisabled}
-        buttonStyle="primary"
-        className="filter-save-button"
-        onClick={onSave}
-        {...getFilterBarTestId('save-button')}
-      >
-        {t('Save')}
-      </Button>
-      <Button
-        buttonStyle="secondary"
-        buttonSize="small"
-        className="filter-history-button"
-        onClick={onHistory}
-        {...getFilterBarTestId('history-button')}
-      >
-        {t('Saved filters')}
-      </Button>
+      {isSaveEnabled && (
+        <Button
+          disabled={isSaveDisabled}
+          buttonStyle="primary"
+          className="filter-save-button"
+          onClick={onSave}
+          {...getFilterBarTestId('save-button')}
+        >
+          {t('Save')}
+        </Button>
+      )}
+      {isSaveEnabled && (
+        <Button
+          buttonStyle="secondary"
+          buttonSize="small"
+          className="filter-history-button"
+          onClick={onHistory}
+          {...getFilterBarTestId('history-button')}
+        >
+          {t('Saved filters')}
+        </Button>
+      )}
       <Button
         disabled={!isClearAllEnabled}
         buttonStyle="link"
