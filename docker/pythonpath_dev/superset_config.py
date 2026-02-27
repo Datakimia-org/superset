@@ -162,8 +162,10 @@ class CeleryConfig:
 
 CELERY_CONFIG = CeleryConfig
 
+DASHBOARD_FILTERS_SAVE = os.getenv("DASHBOARD_FILTERS_SAVE", "false") == "true"
+
 FEATURE_FLAGS = {
-    "DASHBOARD_FILTERS_SAVE": False,
+    "DASHBOARD_FILTERS_SAVE": DASHBOARD_FILTERS_SAVE,
     "ALERT_REPORTS": True,
     "KV_STORE": True,
     "SCHEDULED_QUERIES": True,    
