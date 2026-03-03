@@ -20,7 +20,7 @@ import { useState, useEffect, useRef } from 'react';
 import { css, SupersetTheme, t, DataMaskStateWithId } from '@superset-ui/core';
 import Modal from 'src/components/Modal';
 import Button from 'src/components/Button';
-import { Empty } from 'antd';
+import { Empty, Spin } from 'antd';
 import Icons from 'src/components/Icons';
 import {
   getFilterSets,
@@ -190,13 +190,27 @@ const FilterSets = ({
   onApplyFilterSet,
 }: FilterSetsProps) => {
   const [filterSets, setFilterSets] = useState<FilterSetEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState<string>('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
-      setFilterSets(getFilterSets(dashboardId));
+      setIsLoading(true);
+      setLoadError(null);
+      getFilterSets(dashboardId)
+        .then(sets => {
+          setFilterSets(sets);
+        })
+        .catch(err => {
+          setLoadError(t('Failed to load saved filters'));
+          console.error('Error loading filter sets:', err);
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
     }
   }, [isOpen, dashboardId]);
 
@@ -214,8 +228,13 @@ const FilterSets = ({
 
   const handleDelete = (e: React.MouseEvent, entryId: string) => {
     e.stopPropagation();
-    deleteFilterSetEntry(dashboardId, entryId);
-    setFilterSets(prev => prev.filter(e => e.id !== entryId));
+    deleteFilterSetEntry(dashboardId, entryId)
+      .then(() => {
+        setFilterSets(prev => prev.filter(e => e.id !== entryId));
+      })
+      .catch(err => {
+        console.error('Error deleting filter set:', err);
+      });
   };
 
   const handleStartEdit = (e: React.MouseEvent, entry: FilterSetEntry) => {
@@ -227,12 +246,17 @@ const FilterSets = ({
   const handleSaveLabel = (entryId: string) => {
     const trimmedLabel = editingLabel.trim();
     if (trimmedLabel) {
-      updateFilterSetLabel(dashboardId, entryId, trimmedLabel);
-      setFilterSets(prev =>
-        prev.map(e =>
-          e.id === entryId ? { ...e, customLabel: trimmedLabel } : e,
-        ),
-      );
+      updateFilterSetLabel(dashboardId, entryId, trimmedLabel)
+        .then(() => {
+          setFilterSets(prev =>
+            prev.map(e =>
+              e.id === entryId ? { ...e, customLabel: trimmedLabel } : e,
+            ),
+          );
+        })
+        .catch(err => {
+          console.error('Error updating filter set label:', err);
+        });
     }
     setEditingEntryId(null);
     setEditingLabel('');
@@ -252,6 +276,100 @@ const FilterSets = ({
     }
   };
 
+  const renderContent = () => {
+    if (isLoading) {
+      return (
+        <div css={emptyStateStyle}>
+          <Spin size="large" />
+        </div>
+      );
+    }
+    if (loadError) {
+      return (
+        <div css={emptyStateStyle}>
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={loadError} />
+        </div>
+      );
+    }
+    if (filterSets.length === 0) {
+      return (
+        <div css={emptyStateStyle}>
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={t('No saved filters yet')}
+          />
+        </div>
+      );
+    }
+    return filterSets.map(entry => (
+      <div
+        key={entry.id}
+        css={itemStyle}
+        onClick={() => handleApply(entry)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            handleApply(entry);
+          }
+        }}
+      >
+        <div css={itemInfoStyle}>
+          {editingEntryId === entry.id ? (
+            <input
+              ref={inputRef}
+              type="text"
+              css={labelInputStyle}
+              value={editingLabel}
+              onChange={e => setEditingLabel(e.target.value)}
+              onBlur={() => handleSaveLabel(entry.id)}
+              onKeyDown={e => handleKeyDown(e, entry.id)}
+              maxLength={50}
+              onClick={e => e.stopPropagation()}
+            />
+          ) : (
+            <div css={labelContainerStyle}>
+              <div css={labelStyle}>
+                {entry.customLabel || formatTimestamp(entry.timestamp)}
+              </div>
+              <button
+                type="button"
+                className="edit-icon"
+                css={editIconStyle}
+                onClick={e => handleStartEdit(e, entry)}
+                aria-label={t('Edit label')}
+              >
+                <Icons.EditAlt iconSize="m" />
+              </button>
+            </div>
+          )}
+          <div css={filtersListStyle}>
+            {entry.appliedFilters && entry.appliedFilters.length > 0 ? (
+              entry.appliedFilters.map(filter => (
+                <div key={filter.id} css={filterItemStyle}>
+                  <span css={filterNameStyle}>{filter.name}:</span>
+                  <span css={filterValueStyle}>
+                    {formatFilterValue(filter.value)}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <span>{t('No filters applied')}</span>
+            )}
+          </div>
+        </div>
+        <button
+          type="button"
+          css={deleteButtonStyle}
+          onClick={e => handleDelete(e, entry.id)}
+          aria-label={t('Delete')}
+        >
+          <Icons.Trash iconSize="l" />
+        </button>
+      </div>
+    ));
+  };
+
   return (
     <Modal
       show={isOpen}
@@ -264,84 +382,7 @@ const FilterSets = ({
       }
       width="600px"
     >
-      <div css={containerStyle}>
-        {filterSets.length === 0 ? (
-          <div css={emptyStateStyle}>
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={t('No saved filters yet')}
-            />
-          </div>
-        ) : (
-          filterSets.map(entry => (
-            <div
-              key={entry.id}
-              css={itemStyle}
-              onClick={() => handleApply(entry)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={e => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  handleApply(entry);
-                }
-              }}
-            >
-              <div css={itemInfoStyle}>
-                {editingEntryId === entry.id ? (
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    css={labelInputStyle}
-                    value={editingLabel}
-                    onChange={e => setEditingLabel(e.target.value)}
-                    onBlur={() => handleSaveLabel(entry.id)}
-                    onKeyDown={e => handleKeyDown(e, entry.id)}
-                    maxLength={50}
-                    onClick={e => e.stopPropagation()}
-                  />
-                ) : (
-                  <div css={labelContainerStyle}>
-                    <div css={labelStyle}>
-                      {entry.customLabel || formatTimestamp(entry.timestamp)}
-                    </div>
-                    <button
-                      type="button"
-                      className="edit-icon"
-                      css={editIconStyle}
-                      onClick={e => handleStartEdit(e, entry)}
-                      aria-label={t('Edit label')}
-                    >
-                      <Icons.EditAlt iconSize="m" />
-                    </button>
-                  </div>
-                )}
-                <div css={filtersListStyle}>
-                  {entry.appliedFilters && entry.appliedFilters.length > 0 ? (
-                    entry.appliedFilters.map(filter => (
-                      <div key={filter.id} css={filterItemStyle}>
-                        <span css={filterNameStyle}>{filter.name}:</span>
-                        <span css={filterValueStyle}>
-                          {formatFilterValue(filter.value)}
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <span>{t('No filters applied')}</span>
-                  )}
-                </div>
-              </div>
-              <button
-                type="button"
-                css={deleteButtonStyle}
-                onClick={e => handleDelete(e, entry.id)}
-                aria-label={t('Delete')}
-              >
-                <Icons.Trash iconSize="l" />
-              </button>
-            </div>
-          ))
-        )}
-      </div>
+      <div css={containerStyle}>{renderContent()}</div>
     </Modal>
   );
 };

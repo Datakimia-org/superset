@@ -18,6 +18,12 @@
  */
 
 import { DataMaskStateWithId } from '@superset-ui/core';
+import {
+  getFilterSetsFromServer,
+  saveFilterSetToServer,
+  updateFilterSetLabelOnServer,
+  deleteFilterSetFromServer,
+} from './filterSetsApi';
 
 export interface FilterInfo {
   id: string;
@@ -33,80 +39,25 @@ export interface FilterSetEntry {
   customLabel?: string;
 }
 
-const STORAGE_KEY_PREFIX = 'superset_filter_sets_';
-const MAX_FILTER_SETS = 20;
-
-const getStorageKey = (dashboardId: number): string =>
-  `${STORAGE_KEY_PREFIX}${dashboardId}`;
-
-export const getFilterSets = (dashboardId: number): FilterSetEntry[] => {
-  try {
-    const key = getStorageKey(dashboardId);
-    const stored = sessionStorage.getItem(key);
-    if (!stored) {
-      return [];
-    }
-    return JSON.parse(stored) as FilterSetEntry[];
-  } catch (error) {
-    console.error('Error reading filter sets from storage:', error);
-    return [];
-  }
-};
+export const getFilterSets = (dashboardId: number): Promise<FilterSetEntry[]> =>
+  getFilterSetsFromServer(dashboardId);
 
 export const saveFilterSet = (
   dashboardId: number,
   dataMask: DataMaskStateWithId,
   appliedFilters: FilterInfo[],
   customLabel?: string,
-): void => {
-  try {
-    const filterSets = getFilterSets(dashboardId);
-    const newEntry: FilterSetEntry = {
-      id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      timestamp: Date.now(),
-      dataMask,
-      appliedFilters,
-      ...(customLabel ? { customLabel } : {}),
-    };
-
-    const updated = [newEntry, ...filterSets].slice(0, MAX_FILTER_SETS);
-    sessionStorage.setItem(getStorageKey(dashboardId), JSON.stringify(updated));
-  } catch (error) {
-    console.error('Error saving filter set to storage:', error);
-  }
-};
-
-export const clearFilterSets = (dashboardId: number): void => {
-  try {
-    sessionStorage.removeItem(getStorageKey(dashboardId));
-  } catch (error) {
-    console.error('Error clearing filter sets from storage:', error);
-  }
-};
+): Promise<string> =>
+  saveFilterSetToServer(dashboardId, dataMask, appliedFilters, customLabel);
 
 export const deleteFilterSetEntry = (
   dashboardId: number,
   entryId: string,
-): void => {
-  try {
-    const updated = getFilterSets(dashboardId).filter(e => e.id !== entryId);
-    sessionStorage.setItem(getStorageKey(dashboardId), JSON.stringify(updated));
-  } catch (error) {
-    console.error('Error deleting filter set entry from storage:', error);
-  }
-};
+): Promise<void> => deleteFilterSetFromServer(dashboardId, entryId);
 
 export const updateFilterSetLabel = (
   dashboardId: number,
   entryId: string,
   customLabel: string,
-): void => {
-  try {
-    const updated = getFilterSets(dashboardId).map(e =>
-      e.id === entryId ? { ...e, customLabel } : e,
-    );
-    sessionStorage.setItem(getStorageKey(dashboardId), JSON.stringify(updated));
-  } catch (error) {
-    console.error('Error updating filter set label in storage:', error);
-  }
-};
+): Promise<void> =>
+  updateFilterSetLabelOnServer(dashboardId, entryId, customLabel);
