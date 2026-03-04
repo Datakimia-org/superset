@@ -39,6 +39,7 @@ import {
   isNativeFilter,
   usePrevious,
   styled,
+  t,
 } from '@superset-ui/core';
 import { useHistory } from 'react-router-dom';
 import { updateDataMask, clearDataMask } from 'src/dataMask/actions';
@@ -52,6 +53,7 @@ import { logEvent } from 'src/logger/actions';
 import { LOG_ACTIONS_CHANGE_DASHBOARD_FILTER } from 'src/logger/LogUtils';
 import { FilterBarOrientation, RootState } from 'src/dashboard/types';
 import { UserWithPermissionsAndRoles } from 'src/types/bootstrapTypes';
+import { useToasts } from 'src/components/MessageToasts/withToasts';
 import { checkIsApplyDisabled } from './utils';
 import { FiltersBarProps } from './types';
 import {
@@ -168,6 +170,7 @@ const FilterBar: FC<FiltersBarProps> = ({
     UserWithPermissionsAndRoles
   >(state => state.user); // Check if user has 'Public' role - hide filters for public users
 
+  const { addDangerToast } = useToasts();
   const [filtersInScope] = useSelectFiltersInScope(nativeFilterValues);
 
   const dataMaskSelectedRef = useRef(dataMaskSelected);
@@ -270,20 +273,25 @@ const FilterBar: FC<FiltersBarProps> = ({
   }, [dataMaskApplied, filters]);
 
   const handleConfirmSave = useCallback(
-    (label: string) => {
+    async (label: string) => {
       setIsSaveModalOpen(false);
       if (dashboardId && pendingAppliedFilters.length > 0) {
-        saveFilterSet(
-          dashboardId,
-          dataMaskApplied,
-          pendingAppliedFilters,
-          label || undefined,
-        );
+        try {
+          await saveFilterSet(
+            dashboardId,
+            dataMaskApplied,
+            pendingAppliedFilters,
+            label || undefined,
+          );
+        } catch (err) {
+          addDangerToast(t('Failed to save filter set. Please try again.'));
+          return;
+        }
       }
       setUpdateKey(prev => prev + 1);
       setDataMaskSaved(dataMaskApplied);
     },
-    [dashboardId, dataMaskApplied, pendingAppliedFilters],
+    [addDangerToast, dashboardId, dataMaskApplied, pendingAppliedFilters],
   );
 
   const handleClearAll = useCallback(() => {

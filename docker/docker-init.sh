@@ -64,6 +64,30 @@ echo_step "3" "Starting" "Setting up roles and perms"
 superset init
 echo_step "3" "Complete" "Setting up roles and perms"
 
+# Grant Guest role access to the filter sets API so embedded users can save filter sets
+echo_step "3.5" "Starting" "Granting Guest role filter_sets permissions"
+python - <<'PYEOF'
+from superset.app import create_app
+app = create_app()
+with app.app_context():
+    from superset.extensions import db
+    from superset import security_manager as sm
+
+    role = sm.find_role("Guest")
+    if role:
+        for action in ("can_get", "can_post", "can_put", "can_delete"):
+            pvm = sm.find_permission_view_menu(action, "DashboardFilterSetsRestApi")
+            if pvm:
+                sm.add_permission_role(role, pvm)
+                print(f"  Added {action} on DashboardFilterSetsRestApi to Guest role")
+            else:
+                print(f"  WARNING: pvm {action}/DashboardFilterSetsRestApi not found")
+        db.session.commit()
+    else:
+        print("  WARNING: Guest role not found")
+PYEOF
+echo_step "3.5" "Complete" "Granting Guest role filter_sets permissions"
+
 if [ "$SUPERSET_LOAD_EXAMPLES" = "yes" ]; then
     # Load some data to play with
     echo_step "4" "Starting" "Loading examples"
