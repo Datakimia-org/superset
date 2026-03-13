@@ -21,6 +21,8 @@ import {
   css,
   DataMaskState,
   DataMaskStateWithId,
+  FeatureFlag,
+  isFeatureEnabled,
   t,
   isDefined,
   SupersetTheme,
@@ -35,9 +37,12 @@ interface ActionButtonsProps {
   width?: number;
   onApply: () => void;
   onClearAll: () => void;
+  onHistory?: () => void;
+  onSave: () => void;
   dataMaskSelected: DataMaskState;
   dataMaskApplied: DataMaskStateWithId;
   isApplyDisabled: boolean;
+  isSaveDisabled: boolean;
   filterBarOrientation?: FilterBarOrientation;
 }
 
@@ -84,6 +89,14 @@ const verticalStyle = (theme: SupersetTheme, width: number) => css`
   & > .filter-apply-button {
     margin-bottom: ${theme.gridUnit * 3}px;
   }
+
+  & > .filter-save-button {
+    margin-bottom: ${theme.gridUnit * 3}px;
+  }
+
+  & > .filter-history-button {
+    margin-bottom: ${theme.gridUnit * 3}px;
+  }
 `;
 
 const horizontalStyle = (theme: SupersetTheme) => css`
@@ -106,9 +119,12 @@ const ActionButtons = ({
   width = OPEN_FILTER_BAR_WIDTH,
   onApply,
   onClearAll,
+  onHistory,
+  onSave,
   dataMaskApplied,
   dataMaskSelected,
   isApplyDisabled,
+  isSaveDisabled,
   filterBarOrientation = FilterBarOrientation.Vertical,
 }: ActionButtonsProps) => {
   const isClearAllEnabled = useMemo(
@@ -122,6 +138,7 @@ const ActionButtons = ({
     [dataMaskApplied, dataMaskSelected],
   );
   const isVertical = filterBarOrientation === FilterBarOrientation.Vertical;
+  const isSaveEnabled = isFeatureEnabled(FeatureFlag.DashboardFiltersSave);
 
   return (
     <div
@@ -141,6 +158,28 @@ const ActionButtons = ({
       >
         {isVertical ? t('Apply filters') : t('Apply')}
       </Button>
+      {isSaveEnabled && (
+        <Button
+          disabled={isSaveDisabled}
+          buttonStyle="primary"
+          className="filter-save-button"
+          onClick={onSave}
+          {...getFilterBarTestId('save-button')}
+        >
+          {t('Save')}
+        </Button>
+      )}
+      {isSaveEnabled && (
+        <Button
+          buttonStyle="secondary"
+          buttonSize="small"
+          className="filter-history-button"
+          onClick={onHistory}
+          {...getFilterBarTestId('history-button')}
+        >
+          {t('Saved filters')}
+        </Button>
+      )}
       <Button
         disabled={!isClearAllEnabled}
         buttonStyle="link"
