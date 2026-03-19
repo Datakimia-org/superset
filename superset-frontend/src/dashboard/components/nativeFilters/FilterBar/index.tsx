@@ -39,6 +39,7 @@ import {
   isNativeFilter,
   usePrevious,
   styled,
+  t,
 } from '@superset-ui/core';
 import { useHistory } from 'react-router-dom';
 import { updateDataMask, clearDataMask } from 'src/dataMask/actions';
@@ -52,6 +53,7 @@ import { logEvent } from 'src/logger/actions';
 import { LOG_ACTIONS_CHANGE_DASHBOARD_FILTER } from 'src/logger/LogUtils';
 import { FilterBarOrientation, RootState } from 'src/dashboard/types';
 import { UserWithPermissionsAndRoles } from 'src/types/bootstrapTypes';
+import { useToasts } from 'src/components/MessageToasts/withToasts';
 import { checkIsApplyDisabled } from './utils';
 import { FiltersBarProps } from './types';
 import {
@@ -65,6 +67,9 @@ import ActionButtons from './ActionButtons';
 import Horizontal from './Horizontal';
 import Vertical from './Vertical';
 import { useSelectFiltersInScope } from '../state';
+import { saveFilterSet, FilterInfo } from './filterSetsStorage';
+import FilterSets from './FilterSets';
+import SaveFilterModal from './SaveFilterModal';
 
 // FilterBar is just being hidden as it must still
 // render fully due to encapsulated logics
@@ -141,6 +146,13 @@ const FilterBar: FC<FiltersBarProps> = ({
     useImmer<DataMaskStateWithId>(dataMaskApplied);
   const dispatch = useDispatch();
   const [updateKey, setUpdateKey] = useState(0);
+  const [dataMaskSaved, setDataMaskSaved] =
+    useState<DataMaskStateWithId>(dataMaskApplied);
+  const [isFilterSetsOpen, setIsFilterSetsOpen] = useState(false);
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [pendingAppliedFilters, setPendingAppliedFilters] = useState<
+    FilterInfo[]
+  >([]);
   const tabId = useTabId();
   const filters = useFilters();
   const previousFilters = usePrevious(filters);
@@ -158,6 +170,7 @@ const FilterBar: FC<FiltersBarProps> = ({
     UserWithPermissionsAndRoles
   >(state => state.user); // Check if user has 'Public' role - hide filters for public users
 
+  const { addDangerToast } = useToasts();
   const [filtersInScope] = useSelectFiltersInScope(nativeFilterValues);
 
   const dataMaskSelectedRef = useRef(dataMaskSelected);
@@ -232,18 +245,54 @@ const FilterBar: FC<FiltersBarProps> = ({
     if (user?.userId) {
       publishDataMask(history, dashboardId, updateKey, dataMaskApplied, tabId);
     } // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dashboardId, dataMaskAppliedText, history, updateKey, tabId]);
+  }, [dashboardId, history, updateKey, tabId]);
 
   const handleApply = useCallback(() => {
     dispatch(logEvent(LOG_ACTIONS_CHANGE_DASHBOARD_FILTER, {}));
     const filterIds = Object.keys(dataMaskSelected);
-    setUpdateKey(1);
     filterIds.forEach(filterId => {
       if (dataMaskSelected[filterId]) {
         dispatch(updateDataMask(filterId, dataMaskSelected[filterId]));
       }
     });
   }, [dataMaskSelected, dispatch]);
+
+  const handleSave = useCallback(() => {
+    const filterIds = Object.keys(dataMaskApplied);
+    const appliedFilters = filterIds
+      .filter(
+        filterId => dataMaskApplied[filterId]?.filterState?.value !== undefined,
+      )
+      .map(filterId => ({
+        id: filterId,
+        name: filters[filterId]?.name || filterId,
+        value: dataMaskApplied[filterId]?.filterState?.value,
+      }));
+    setPendingAppliedFilters(appliedFilters);
+    setIsSaveModalOpen(true);
+  }, [dataMaskApplied, filters]);
+
+  const handleConfirmSave = useCallback(
+    async (label: string) => {
+      setIsSaveModalOpen(false);
+      if (dashboardId && pendingAppliedFilters.length > 0) {
+        try {
+          await saveFilterSet(
+            dashboardId,
+            dataMaskApplied,
+            pendingAppliedFilters,
+            label || undefined,
+          );
+        } catch (err) {
+          addDangerToast(t('Failed to save filter set. Please try again.'));
+          return;
+        }
+      }
+      setUpdateKey(prev => prev + 1);
+      setDataMaskSaved(dataMaskApplied);
+    },
+    [addDangerToast, dashboardId, dataMaskApplied, pendingAppliedFilters],
+  );
 
   const handleClearAll = useCallback(() => {
     const clearDataMaskIds: string[] = [];
@@ -267,12 +316,43 @@ const FilterBar: FC<FiltersBarProps> = ({
     }
   }, [dataMaskSelected, dispatch, filtersInScope, setDataMaskSelected]);
 
+  const handleFilterSets = useCallback(() => {
+    setIsFilterSetsOpen(true);
+  }, []);
+
+  const handleCloseFilterSets = useCallback(() => {
+    setIsFilterSetsOpen(false);
+  }, []);
+
+  const handleApplyFilterSet = useCallback(
+    (filterSetDataMask: DataMaskStateWithId) => {
+      setDataMaskSelected(() => filterSetDataMask);
+      const filterIds = Object.keys(filterSetDataMask);
+      filterIds.forEach(filterId => {
+        if (filterSetDataMask[filterId]) {
+          dispatch(updateDataMask(filterId, filterSetDataMask[filterId]));
+        }
+      });
+      dispatch(logEvent(LOG_ACTIONS_CHANGE_DASHBOARD_FILTER, {}));
+      setDataMaskSaved(filterSetDataMask);
+    },
+    [dispatch, setDataMaskSelected],
+  );
+
   useFilterUpdates(dataMaskSelected, setDataMaskSelected);
   const isApplyDisabled = checkIsApplyDisabled(
     dataMaskSelected,
     dataMaskApplied,
     filtersInScope.filter(isNativeFilter),
   );
+  const hasAppliedFilters = Object.values(dataMaskApplied).some(mask => {
+    const value = mask?.filterState?.value;
+    if (value === undefined || value === null) return false;
+    if (Array.isArray(value) && value.length === 0) return false;
+    return true;
+  });
+  const isSaveDisabled =
+    !hasAppliedFilters || isEqual(dataMaskApplied, dataMaskSaved);
   const isInitialized = useInitialization();
 
   const actions = (
@@ -281,9 +361,12 @@ const FilterBar: FC<FiltersBarProps> = ({
       width={verticalConfig?.width}
       onApply={handleApply}
       onClearAll={handleClearAll}
+      onHistory={handleFilterSets}
+      onSave={handleSave}
       dataMaskSelected={dataMaskSelected}
       dataMaskApplied={dataMaskApplied}
       isApplyDisabled={isApplyDisabled}
+      isSaveDisabled={isSaveDisabled}
     />
   );
 
@@ -314,10 +397,26 @@ const FilterBar: FC<FiltersBarProps> = ({
       />
     ) : null;
 
-  return hidden ? (
-    <HiddenFilterBar>{filterBarComponent}</HiddenFilterBar>
-  ) : (
-    filterBarComponent
+  return (
+    <>
+      {hidden ? (
+        <HiddenFilterBar>{filterBarComponent}</HiddenFilterBar>
+      ) : (
+        filterBarComponent
+      )}
+      <FilterSets
+        isOpen={isFilterSetsOpen}
+        onClose={handleCloseFilterSets}
+        dashboardId={dashboardId}
+        onApplyFilterSet={handleApplyFilterSet}
+      />
+      <SaveFilterModal
+        isOpen={isSaveModalOpen}
+        appliedFilters={pendingAppliedFilters}
+        onConfirm={handleConfirmSave}
+        onClose={() => setIsSaveModalOpen(false)}
+      />
+    </>
   );
 };
 export default memo(FilterBar);
