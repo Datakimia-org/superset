@@ -104,6 +104,7 @@ from superset.tasks.utils import get_current_user
 from superset.utils import json
 from superset.utils.cache import memoized_func
 from superset.utils.core import get_user_id
+from superset.utils.hashing import md5_sha_from_dict
 from superset.utils.pdf import build_pdf_from_screenshots
 from superset.utils.screenshots import (
     DashboardScreenshot,
@@ -128,12 +129,12 @@ DATASETS_ENDPOINT_CACHE_TIMEOUT = 300
 
 
 @memoized_func(
-    key="dashboard_datasets:{id_or_slug}:{user_id}",
+    key="dashboard_datasets:{id_or_slug}:{cache_context}",
     cache=cache_manager.cache,
 )
 def get_datasets_for_dashboard_cached(
     id_or_slug: str,
-    user_id: int | None,
+    cache_context: str | int | None,
 ) -> list[Any]:
     return DashboardDAO.get_datasets_for_dashboard(id_or_slug)
 
@@ -431,11 +432,23 @@ class DashboardRestApi(BaseSupersetModelRestApi):
               $ref: '#/components/responses/404'
         """
         try:
-            should_cache = not security_manager.is_guest_user()
+            if security_manager.is_guest_user():
+                # Prevent guest-token info leakage by making the cache key
+                # dependent on the embedded guest's resources and RLS rules.
+                # NOTE: we intentionally exclude `iat/exp` to improve cache hits.
+                guest_user: GuestUser = g.user
+                cache_payload = {
+                    "username": getattr(guest_user, "username", None),
+                    "resources": getattr(guest_user, "resources", None),
+                    "rls": getattr(guest_user, "rls", None),
+                }
+                cache_context: str = md5_sha_from_dict(cache_payload)
+            else:
+                cache_context = get_user_id()
             datasets = get_datasets_for_dashboard_cached(
                 id_or_slug=id_or_slug,
-                user_id=get_user_id(),
-                cache=should_cache,
+                cache_context=cache_context,
+                cache=True,
                 cache_timeout=current_app.config.get(
                     "DATASETS_ENDPOINT_CACHE_TIMEOUT",
                     DATASETS_ENDPOINT_CACHE_TIMEOUT,

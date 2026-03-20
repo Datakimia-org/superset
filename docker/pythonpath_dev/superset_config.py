@@ -141,6 +141,12 @@ DATASETS_ENDPOINT_CACHE_TIMEOUT = int(
     os.getenv("DATASETS_ENDPOINT_CACHE_TIMEOUT", "300")
 )
 
+# Cache chart list endpoint for repeated navigation/refreshes.
+# Use short TTL to keep metadata reasonably fresh.
+CHART_LIST_ENDPOINT_CACHE_TIMEOUT = int(
+    os.getenv("CHART_LIST_ENDPOINT_CACHE_TIMEOUT", "300")
+)
+
 
 class CeleryConfig:
     broker_url = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_CELERY_DB}"
