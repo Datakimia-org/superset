@@ -235,21 +235,6 @@ class ChartDataRestApi(ChartRestApi):
         if json_body is None:
             return self.response_400(message=_("Request is not JSON"))
 
-        try:
-            query_context = self._create_query_context_from_form(json_body)
-            command = ChartDataCommand(query_context)
-            command.validate()
-        except DatasourceNotFound:
-            return self.response_404()
-        except QueryObjectValidationError as error:
-            return self.response_400(message=error.message)
-        except ValidationError as error:
-            return self.response_400(
-                message=_(
-                    "Request is incorrect: %(error)s", error=error.normalized_messages()
-                )
-            )
-
         # Cache the full API response for identical requests by the same user/guest.
         # This complements Superset's internal dataframe/query caching by also skipping
         # JSON serialization and any post-processing.
@@ -264,6 +249,7 @@ class ChartDataRestApi(ChartRestApi):
         )
 
         cache_key = None
+        api_cache_miss = False
         if can_cache:
             if security_manager.is_guest_user():
                 guest_user = g.user
@@ -294,6 +280,23 @@ class ChartDataRestApi(ChartRestApi):
             api_cache_miss = True
         else:
             api_cache_miss = False
+
+        try:
+            # Validation/parsing can be expensive; by doing the cache lookup first,
+            # we avoid paying this cost on cache hits.
+            query_context = self._create_query_context_from_form(json_body)
+            command = ChartDataCommand(query_context)
+            command.validate()
+        except DatasourceNotFound:
+            return self.response_404()
+        except QueryObjectValidationError as error:
+            return self.response_400(message=error.message)
+        except ValidationError as error:
+            return self.response_400(
+                message=_(
+                    "Request is incorrect: %(error)s", error=error.normalized_messages()
+                )
+            )
 
         # TODO: support CSV, SQL query and other non-JSON types
         if (
