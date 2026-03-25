@@ -147,6 +147,25 @@ CHART_LIST_ENDPOINT_CACHE_TIMEOUT = int(
     os.getenv("CHART_LIST_ENDPOINT_CACHE_TIMEOUT", "300")
 )
 
+# Cache chart/_info endpoint for repeated UI fetches.
+CHART_INFO_ENDPOINT_CACHE_TIMEOUT = int(
+    os.getenv("CHART_INFO_ENDPOINT_CACHE_TIMEOUT", "60")
+)
+
+# Cache saved_query list responses (short TTL; user-specific).
+SAVED_QUERY_LIST_ENDPOINT_CACHE_TIMEOUT = int(
+    os.getenv("SAVED_QUERY_LIST_ENDPOINT_CACHE_TIMEOUT", "60")
+)
+
+# Cache `POST /api/v1/chart/data` responses for identical requests by the same
+# user/embedded guest. Keep TTL short to reduce staleness risk.
+CHART_DATA_ENDPOINT_CACHE_TIMEOUT = int(
+    os.getenv("CHART_DATA_ENDPOINT_CACHE_TIMEOUT", "120")
+)
+CHART_DATA_ENDPOINT_CACHE_MAX_BYTES = int(
+    os.getenv("CHART_DATA_ENDPOINT_CACHE_MAX_BYTES", "2000000")
+)
+
 
 class CeleryConfig:
     broker_url = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_CELERY_DB}"
