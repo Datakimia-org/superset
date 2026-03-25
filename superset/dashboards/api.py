@@ -22,7 +22,7 @@ from io import BytesIO
 from typing import Any, Callable, cast, Optional
 from zipfile import is_zipfile, ZipFile
 
-from flask import g, redirect, request, Response, send_file, url_for
+from flask import current_app, g, redirect, request, Response, send_file, url_for
 from flask_appbuilder import permission_name
 from flask_appbuilder.api import expose, protect, rison, safe
 from flask_appbuilder.hooks import before_request
@@ -32,7 +32,7 @@ from marshmallow import ValidationError
 from werkzeug.wrappers import Response as WerkzeugResponse
 from werkzeug.wsgi import FileWrapper
 
-from superset import db, is_feature_enabled, thumbnail_cache
+from superset import db, is_feature_enabled, security_manager, thumbnail_cache
 from superset.charts.schemas import ChartEntityResponseSchema
 from superset.commands.dashboard.copy import CopyDashboardCommand
 from superset.commands.dashboard.create import CreateDashboardCommand
@@ -92,7 +92,7 @@ from superset.dashboards.schemas import (
     TabsPayloadSchema,
     thumbnail_query_schema,
 )
-from superset.extensions import event_logger
+from superset.extensions import cache_manager, event_logger
 from superset.models.dashboard import Dashboard
 from superset.models.embedded_dashboard import EmbeddedDashboard
 from superset.security.guest_token import GuestUser
@@ -102,6 +102,9 @@ from superset.tasks.thumbnails import (
 )
 from superset.tasks.utils import get_current_user
 from superset.utils import json
+from superset.utils.cache import memoized_func
+from superset.utils.core import get_user_id
+from superset.utils.hashing import md5_sha_from_dict
 from superset.utils.pdf import build_pdf_from_screenshots
 from superset.utils.screenshots import (
     DashboardScreenshot,
@@ -122,6 +125,18 @@ from superset.views.filters import (
 )
 
 logger = logging.getLogger(__name__)
+DATASETS_ENDPOINT_CACHE_TIMEOUT = 300
+
+
+@memoized_func(
+    key="dashboard_datasets:{id_or_slug}:{cache_context}",
+    cache=cache_manager.cache,
+)
+def get_datasets_for_dashboard_cached(
+    id_or_slug: str,
+    cache_context: str | int | None,
+) -> list[Any]:
+    return DashboardDAO.get_datasets_for_dashboard(id_or_slug)
 
 
 def with_dashboard(
@@ -417,7 +432,28 @@ class DashboardRestApi(BaseSupersetModelRestApi):
               $ref: '#/components/responses/404'
         """
         try:
-            datasets = DashboardDAO.get_datasets_for_dashboard(id_or_slug)
+            if security_manager.is_guest_user():
+                # Prevent guest-token info leakage by making the cache key
+                # dependent on the embedded guest's resources and RLS rules.
+                # NOTE: we intentionally exclude `iat/exp` to improve cache hits.
+                guest_user: GuestUser = g.user
+                cache_payload = {
+                    "username": getattr(guest_user, "username", None),
+                    "resources": getattr(guest_user, "resources", None),
+                    "rls": getattr(guest_user, "rls", None),
+                }
+                cache_context: str = md5_sha_from_dict(cache_payload)
+            else:
+                cache_context = get_user_id()
+            datasets = get_datasets_for_dashboard_cached(
+                id_or_slug=id_or_slug,
+                cache_context=cache_context,
+                cache=True,
+                cache_timeout=current_app.config.get(
+                    "DATASETS_ENDPOINT_CACHE_TIMEOUT",
+                    DATASETS_ENDPOINT_CACHE_TIMEOUT,
+                ),
+            )
             result = [
                 self.dashboard_dataset_schema.dump(dataset) for dataset in datasets
             ]

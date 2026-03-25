@@ -26,7 +26,7 @@ import os
 import json
 from datetime import timedelta
 from celery.schedules import crontab
-from flask_caching.backends.filesystemcache import FileSystemCache
+from flask_caching.backends.rediscache import RedisCache
 from superset.tasks.types import ExecutorType
 from superset.superset_typing import CacheConfig
 
@@ -118,7 +118,12 @@ REDIS_PORT = os.getenv("REDIS_PORT", "6379")
 REDIS_CELERY_DB = os.getenv("REDIS_CELERY_DB", "0")
 REDIS_RESULTS_DB = os.getenv("REDIS_RESULTS_DB", "1")
 
-RESULTS_BACKEND = FileSystemCache("/app/superset_home/sqllab")
+RESULTS_BACKEND = RedisCache(
+    host=REDIS_HOST,
+    port=int(REDIS_PORT),
+    db=int(REDIS_RESULTS_DB),
+    key_prefix="superset_results_",
+)
 
 CACHE_CONFIG = {
     "CACHE_TYPE": "RedisCache",
@@ -129,6 +134,37 @@ CACHE_CONFIG = {
     "CACHE_REDIS_DB": REDIS_RESULTS_DB,
 }
 DATA_CACHE_CONFIG = CACHE_CONFIG
+
+# Cache dashboard datasets endpoint for repeated dashboard opens.
+# Use a short TTL to limit staleness while reducing metadata DB load.
+DATASETS_ENDPOINT_CACHE_TIMEOUT = int(
+    os.getenv("DATASETS_ENDPOINT_CACHE_TIMEOUT", "300")
+)
+
+# Cache chart list endpoint for repeated navigation/refreshes.
+# Use short TTL to keep metadata reasonably fresh.
+CHART_LIST_ENDPOINT_CACHE_TIMEOUT = int(
+    os.getenv("CHART_LIST_ENDPOINT_CACHE_TIMEOUT", "300")
+)
+
+# Cache chart/_info endpoint for repeated UI fetches.
+CHART_INFO_ENDPOINT_CACHE_TIMEOUT = int(
+    os.getenv("CHART_INFO_ENDPOINT_CACHE_TIMEOUT", "60")
+)
+
+# Cache saved_query list responses (short TTL; user-specific).
+SAVED_QUERY_LIST_ENDPOINT_CACHE_TIMEOUT = int(
+    os.getenv("SAVED_QUERY_LIST_ENDPOINT_CACHE_TIMEOUT", "60")
+)
+
+# Cache `POST /api/v1/chart/data` responses for identical requests by the same
+# user/embedded guest. Keep TTL short to reduce staleness risk.
+CHART_DATA_ENDPOINT_CACHE_TIMEOUT = int(
+    os.getenv("CHART_DATA_ENDPOINT_CACHE_TIMEOUT", "120")
+)
+CHART_DATA_ENDPOINT_CACHE_MAX_BYTES = int(
+    os.getenv("CHART_DATA_ENDPOINT_CACHE_MAX_BYTES", "2000000")
+)
 
 
 class CeleryConfig:

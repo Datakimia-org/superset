@@ -51,9 +51,11 @@ from superset.utils.core import (
     DatasourceType,
     get_user_id,
 )
+from superset.utils.hashing import md5_sha_from_dict
 from superset.utils.decorators import logs_context
 from superset.views.base import CsvResponse, generate_download_headers, XlsxResponse
 from superset.views.base_api import statsd_metrics
+from superset.extensions import cache_manager
 
 if TYPE_CHECKING:
     from superset.common.query_context import QueryContext
@@ -248,6 +250,51 @@ class ChartDataRestApi(ChartRestApi):
                 )
             )
 
+        # Cache the full API response for identical requests by the same user/guest.
+        # This complements Superset's internal dataframe/query caching by also skipping
+        # JSON serialization and any post-processing.
+        form_data_for_checks = json_body.get("form_data") or {}
+        request_force = bool(json_body.get("force")) or bool(form_data_for_checks.get("force"))
+        result_format = json_body.get("result_format") or form_data_for_checks.get("result_format")
+        result_type = json_body.get("result_type") or form_data_for_checks.get("result_type")
+        can_cache = (
+            not request_force
+            and result_format == "json"
+            and result_type in (None, "full")
+        )
+
+        cache_key = None
+        if can_cache:
+            if security_manager.is_guest_user():
+                guest_user = g.user
+                cache_payload = {
+                    "username": getattr(guest_user, "username", None),
+                    "resources": getattr(guest_user, "resources", None),
+                    "rls": getattr(guest_user, "rls", None),
+                }
+                cache_context = md5_sha_from_dict(cache_payload)
+            else:
+                cache_context = get_user_id()
+
+            body_hash = md5_sha_from_dict(json_body)
+            cache_key = f"chart_data_api:{cache_context}:{body_hash}"
+
+            cached = cache_manager.cache.get(cache_key)
+            if cached is not None:
+                logger.debug("Chart data API cache hit: %s", cache_key)
+                resp = make_response(
+                    cached["body"],
+                    cached.get("status_code", 200),
+                    {"Content-Type": cached.get("mimetype", "application/json")},
+                )
+                resp.headers["X-Chart-Data-API-Cache"] = "HIT"
+                return resp
+
+            logger.debug("Chart data API cache miss: %s", cache_key)
+            api_cache_miss = True
+        else:
+            api_cache_miss = False
+
         # TODO: support CSV, SQL query and other non-JSON types
         if (
             is_feature_enabled("GLOBAL_ASYNC_QUERIES")
@@ -257,9 +304,38 @@ class ChartDataRestApi(ChartRestApi):
             return self._run_async(json_body, command)
 
         form_data = json_body.get("form_data")
-        return self._get_data_response(
+        response = self._get_data_response(
             command, form_data=form_data, datasource=query_context.datasource
         )
+
+        if (
+            can_cache
+            and cache_key
+            and response.status_code == 200
+            and response.mimetype == "application/json"
+        ):
+            cache_timeout = current_app.config.get(
+                "CHART_DATA_ENDPOINT_CACHE_TIMEOUT", 120
+            )
+            max_bytes = current_app.config.get(
+                "CHART_DATA_ENDPOINT_CACHE_MAX_BYTES", 2_000_000
+            )
+            body = response.get_data(as_text=True)
+            if len(body) <= max_bytes:
+                cache_manager.cache.set(
+                    cache_key,
+                    {
+                        "body": body,
+                        "status_code": response.status_code,
+                        "mimetype": response.mimetype,
+                    },
+                    timeout=cache_timeout,
+                )
+                logger.debug("Chart data API cached: %s", cache_key)
+
+        if api_cache_miss and can_cache and cache_key:
+            response.headers["X-Chart-Data-API-Cache"] = "MISS"
+        return response
 
     @expose("/data/<cache_key>", methods=("GET",))
     @protect()

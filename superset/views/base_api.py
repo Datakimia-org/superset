@@ -20,19 +20,26 @@ import functools
 import logging
 from typing import Any, Callable, cast
 
-from flask import request, Response
+from flask import current_app, g, request, Response
 from flask_appbuilder import Model, ModelRestApi
 from flask_appbuilder.api import BaseApi, expose, protect, rison, safe
 from flask_appbuilder.models.filters import BaseFilter, Filters
 from flask_appbuilder.models.sqla.filters import FilterStartsWith
 from flask_appbuilder.models.sqla.interface import SQLAInterface
+from flask_caching.backends import NullCache
 from flask_babel import lazy_gettext as _
 from marshmallow import fields, Schema
 from sqlalchemy import and_, distinct, func
 from sqlalchemy.orm.query import Query
 
 from superset.exceptions import InvalidPayloadFormatError
-from superset.extensions import db, event_logger, security_manager, stats_logger_manager
+from superset.extensions import (
+    cache_manager,
+    db,
+    event_logger,
+    security_manager,
+    stats_logger_manager,
+)
 from superset.models.core import FavStar
 from superset.models.dashboard import Dashboard
 from superset.models.slice import Slice
@@ -40,7 +47,9 @@ from superset.schemas import error_payload_content
 from superset.sql_lab import Query as SqllabQuery
 from superset.superset_typing import FlaskResponse
 from superset.utils.core import get_user_id, time_function
+from superset.utils.hashing import md5_sha_from_dict
 from superset.views.error_handling import handle_api_exception
+from superset.security.guest_token import GuestUser
 
 logger = logging.getLogger(__name__)
 get_related_schema = {
@@ -432,7 +441,64 @@ class BaseSupersetModelRestApi(BaseSupersetApiMixin, ModelRestApi):
         """
         Add statsd metrics to builtin FAB _info endpoint
         """
-        duration, response = time_function(super().info_headless, **kwargs)
+        resource_name = getattr(self, "resource_name", None)
+        path = request.path.rstrip("/")
+        should_cache = resource_name == "chart" and path == "/api/v1/chart/_info"
+
+        def get_or_compute() -> Response:
+            if not should_cache:
+                return super().info_headless(**kwargs)
+
+            if security_manager.is_guest_user():
+                # Prevent guest-token info leakage by making the cache key dependent
+                # on the embedded guest's resources and RLS rules.
+                guest_user: GuestUser = g.user
+                cache_payload = {
+                    "username": getattr(guest_user, "username", None),
+                    "resources": getattr(guest_user, "resources", None),
+                    "rls": getattr(guest_user, "rls", None),
+                }
+                cache_context = md5_sha_from_dict(cache_payload)
+            else:
+                cache_context = get_user_id()
+
+            query_string = request.query_string.decode("utf-8", errors="ignore")
+            query_context = md5_sha_from_dict({"query_string": query_string})
+            cache_key = f"chart_info:{cache_context}:{query_context}"
+            cache_timeout = current_app.config.get(
+                "CHART_INFO_ENDPOINT_CACHE_TIMEOUT",
+                60,
+            )
+
+            cached = cache_manager.cache.get(cache_key)
+            if cached is not None:
+                logger.debug("Chart info cache hit: %s", cache_key)
+                return Response(
+                    cached["body"],
+                    status=cached["status_code"],
+                    mimetype=cached["mimetype"],
+                )
+
+            logger.debug("Chart info cache miss: %s", cache_key)
+            response = super().info_headless(**kwargs)
+            if (
+                response.status_code == 200
+                and not isinstance(cache_manager.cache.cache, NullCache)
+            ):
+                cache_manager.cache.set(
+                    cache_key,
+                    {
+                        "body": response.get_data(as_text=True),
+                        "status_code": response.status_code,
+                        "mimetype": response.mimetype,
+                    },
+                    timeout=cache_timeout,
+                )
+                logger.debug("Chart info cached: %s", cache_key)
+
+            return response
+
+        duration, response = time_function(get_or_compute)
         self.send_stats_metrics(response, self.info.__name__, duration)
         return response
 
@@ -460,7 +526,77 @@ class BaseSupersetModelRestApi(BaseSupersetApiMixin, ModelRestApi):
         """
         Add statsd metrics to builtin FAB GET list endpoint
         """
-        duration, response = time_function(super().get_list_headless, **kwargs)
+        resource_name = getattr(self, "resource_name", None)
+        path = request.path.rstrip("/")
+        should_cache = (resource_name == "chart" and path == "/api/v1/chart") or (
+            resource_name == "saved_query" and path == "/api/v1/saved_query"
+        )
+        super_get_list_headless = super().get_list_headless
+
+        def get_or_compute() -> Response:
+            if not should_cache:
+                return super_get_list_headless(**kwargs)
+
+            if security_manager.is_guest_user():
+                # Prevent guest-token info leakage by making the cache key dependent
+                # on the embedded guest's resources and RLS rules.
+                guest_user: GuestUser = g.user
+                cache_payload = {
+                    "username": getattr(guest_user, "username", None),
+                    "resources": getattr(guest_user, "resources", None),
+                    "rls": getattr(guest_user, "rls", None),
+                }
+                cache_context = md5_sha_from_dict(cache_payload)
+            else:
+                cache_context = get_user_id()
+
+            query_string = request.query_string.decode("utf-8", errors="ignore")
+            query_context = md5_sha_from_dict(
+                {"query_string": query_string},
+            )
+            cache_prefix = (
+                "chart_list"
+                if resource_name == "chart"
+                else "saved_query_list"
+                if resource_name == "saved_query"
+                else str(resource_name)
+            )
+            cache_key = f"{cache_prefix}:{cache_context}:{query_context}"
+            cache_timeout = current_app.config.get(
+                "CHART_LIST_ENDPOINT_CACHE_TIMEOUT" if resource_name == "chart" else "SAVED_QUERY_LIST_ENDPOINT_CACHE_TIMEOUT",
+                300 if resource_name == "chart" else 60,
+            )
+
+            cached = cache_manager.cache.get(cache_key)
+            if cached is not None:
+                logger.debug("%s cache hit: %s", cache_prefix, cache_key)
+                return Response(
+                    cached["body"],
+                    status=cached["status_code"],
+                    mimetype=cached["mimetype"],
+                )
+
+            logger.debug("%s cache miss: %s", cache_prefix, cache_key)
+            response = super_get_list_headless(**kwargs)
+            if (
+                response.status_code == 200
+                and not isinstance(cache_manager.cache.cache, NullCache)
+            ):
+                # Store only the raw response body to keep the caching logic robust to
+                # response schema changes (count/result fields, etc).
+                cache_manager.cache.set(
+                    cache_key,
+                    {
+                        "body": response.get_data(as_text=True),
+                        "status_code": response.status_code,
+                        "mimetype": response.mimetype,
+                    },
+                    timeout=cache_timeout,
+                )
+                logger.debug("%s cached: %s", cache_prefix, cache_key)
+            return response
+
+        duration, response = time_function(get_or_compute)
         self.send_stats_metrics(response, self.get_list.__name__, duration)
         return response
 
