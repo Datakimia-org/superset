@@ -150,9 +150,6 @@ const FilterBar: FC<FiltersBarProps> = ({
     useState<DataMaskStateWithId>(dataMaskApplied);
   const [isFilterSetsOpen, setIsFilterSetsOpen] = useState(false);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
-  const [isPermalinkContext] = useState(() =>
-    Boolean(getUrlParam(URL_PARAMS.permalinkKey)),
-  );
   const [pendingAppliedFilters, setPendingAppliedFilters] = useState<
     FilterInfo[]
   >([]);
@@ -356,8 +353,6 @@ const FilterBar: FC<FiltersBarProps> = ({
   });
   const isSaveDisabled =
     !hasAppliedFilters || isEqual(dataMaskApplied, dataMaskSaved);
-  const canPersistFilterSets = Boolean(user?.userId) && !user?.isAnonymous;
-  const showSaveFilterActions = canPersistFilterSets && !isPermalinkContext;
   const isInitialized = useInitialization();
 
   const actions = (
@@ -372,7 +367,6 @@ const FilterBar: FC<FiltersBarProps> = ({
       dataMaskApplied={dataMaskApplied}
       isApplyDisabled={isApplyDisabled}
       isSaveDisabled={isSaveDisabled}
-      showSaveFilterActions={showSaveFilterActions}
     />
   );
 
