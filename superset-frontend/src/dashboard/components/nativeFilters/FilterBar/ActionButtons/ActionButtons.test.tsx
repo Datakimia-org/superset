@@ -17,6 +17,8 @@
  * under the License.
  */
 import { OPEN_FILTER_BAR_WIDTH } from 'src/dashboard/constants';
+import { FeatureFlag } from '@superset-ui/core';
+import * as uiCore from '@superset-ui/core';
 import userEvent from '@testing-library/user-event';
 import { render, screen } from 'spec/helpers/testing-library';
 import ActionButtons from './index';
@@ -102,5 +104,39 @@ describe('custom width', () => {
     );
     const container = getByTestId('filterbar-action-buttons');
     expect(container).toHaveStyleRule('width', `${expectedWidth - 1}px`);
+  });
+});
+
+describe('save filters visibility', () => {
+  let isFeatureEnabledMock: jest.SpyInstance<boolean, [feature: FeatureFlag]>;
+
+  beforeEach(() => {
+    isFeatureEnabledMock = jest
+      .spyOn(uiCore, 'isFeatureEnabled')
+      .mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    isFeatureEnabledMock.mockRestore();
+  });
+
+  test('shows save actions when allowed', () => {
+    const mockedProps = createProps();
+    render(<ActionButtons {...mockedProps} showSaveFilterActions />, {
+      useRedux: true,
+    });
+
+    expect(screen.getByText('Save')).toBeInTheDocument();
+    expect(screen.getByText('Saved filters')).toBeInTheDocument();
+  });
+
+  test('hides save actions when disallowed', () => {
+    const mockedProps = createProps();
+    render(<ActionButtons {...mockedProps} showSaveFilterActions={false} />, {
+      useRedux: true,
+    });
+
+    expect(screen.queryByText('Save')).not.toBeInTheDocument();
+    expect(screen.queryByText('Saved filters')).not.toBeInTheDocument();
   });
 });
