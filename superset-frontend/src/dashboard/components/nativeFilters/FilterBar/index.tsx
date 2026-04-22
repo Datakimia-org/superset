@@ -150,9 +150,14 @@ const FilterBar: FC<FiltersBarProps> = ({
     useState<DataMaskStateWithId>(dataMaskApplied);
   const [isFilterSetsOpen, setIsFilterSetsOpen] = useState(false);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
-  const [isPermalinkContext] = useState(() =>
-    Boolean(getUrlParam(URL_PARAMS.permalinkKey)),
-  );
+  const [isPermalinkContext] = useState(() => {
+    const permalinkKey = getUrlParam(URL_PARAMS.permalinkKey);
+    if (typeof permalinkKey !== 'string') {
+      return false;
+    }
+    const normalizedPermalinkKey = permalinkKey.trim().toLowerCase();
+    return normalizedPermalinkKey !== '' && normalizedPermalinkKey !== 'null';
+  });
   const [pendingAppliedFilters, setPendingAppliedFilters] = useState<
     FilterInfo[]
   >([]);
@@ -356,8 +361,7 @@ const FilterBar: FC<FiltersBarProps> = ({
   });
   const isSaveDisabled =
     !hasAppliedFilters || isEqual(dataMaskApplied, dataMaskSaved);
-  const canPersistFilterSets = Boolean(user?.userId) && !user?.isAnonymous;
-  const showSaveFilterActions = canPersistFilterSets && !isPermalinkContext;
+  const showSaveFilterActions = !isPermalinkContext;
   const isInitialized = useInitialization();
 
   const actions = (
