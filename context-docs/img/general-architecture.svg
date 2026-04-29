@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="980" viewBox="0 0 1500 980">
+  <rect width="1500" height="980" fill="#0b0d11"/>
+  <text x="750" y="46" text-anchor="middle" fill="#e8e8e8" font-size="40" font-family="Arial, sans-serif" font-weight="700">General Product Architecture</text>
+
+  <!-- Left column -->
+  <rect x="70" y="110" width="370" height="300" rx="14" fill="none" stroke="#8c939f" stroke-dasharray="8 6"/>
+  <text x="255" y="146" text-anchor="middle" fill="#d5dae2" font-size="24" font-family="Arial, sans-serif">Planned Identity Providers</text>
+  <text x="255" y="176" text-anchor="middle" fill="#d5dae2" font-size="20" font-family="Arial, sans-serif">(Not Implemented Yet)</text>
+  <rect x="105" y="205" width="130" height="52" rx="8" fill="#2a2d34" stroke="#9ba3af"/>
+  <rect x="270" y="205" width="130" height="52" rx="8" fill="#2a2d34" stroke="#9ba3af"/>
+  <rect x="105" y="285" width="130" height="52" rx="8" fill="#2a2d34" stroke="#9ba3af"/>
+  <rect x="270" y="285" width="130" height="52" rx="8" fill="#2a2d34" stroke="#9ba3af"/>
+  <text x="170" y="238" text-anchor="middle" fill="#eef2f8" font-size="20" font-family="Arial, sans-serif">LinkedIn</text>
+  <text x="335" y="238" text-anchor="middle" fill="#eef2f8" font-size="20" font-family="Arial, sans-serif">Instagram</text>
+  <text x="170" y="318" text-anchor="middle" fill="#eef2f8" font-size="20" font-family="Arial, sans-serif">Facebook</text>
+  <text x="335" y="318" text-anchor="middle" fill="#eef2f8" font-size="20" font-family="Arial, sans-serif">Twitter</text>
+
+  <rect x="70" y="470" width="370" height="250" rx="14" fill="none" stroke="#8c939f" stroke-dasharray="8 6"/>
+  <text x="255" y="506" text-anchor="middle" fill="#d5dae2" font-size="24" font-family="Arial, sans-serif">Additional BI Tools</text>
+  <text x="255" y="536" text-anchor="middle" fill="#d5dae2" font-size="20" font-family="Arial, sans-serif">(Not Active Yet)</text>
+  <rect x="105" y="570" width="100" height="50" rx="8" fill="#2a2d34" stroke="#9ba3af"/>
+  <rect x="225" y="570" width="100" height="50" rx="8" fill="#2a2d34" stroke="#9ba3af"/>
+  <rect x="345" y="570" width="80" height="50" rx="8" fill="#2a2d34" stroke="#9ba3af"/>
+  <text x="155" y="602" text-anchor="middle" fill="#eef2f8" font-size="19" font-family="Arial, sans-serif">Looker</text>
+  <text x="275" y="602" text-anchor="middle" fill="#eef2f8" font-size="19" font-family="Arial, sans-serif">Power BI</text>
+  <text x="385" y="602" text-anchor="middle" fill="#eef2f8" font-size="19" font-family="Arial, sans-serif">Tableau</text>
+
+  <!-- Middle column -->
+  <rect x="530" y="110" width="440" height="220" rx="14" fill="#20252f" stroke="#616b7a"/>
+  <text x="750" y="146" text-anchor="middle" fill="#d5dae2" font-size="26" font-family="Arial, sans-serif">Identity Providers (Active)</text>
+  <rect x="565" y="190" width="120" height="58" rx="8" fill="#303544" stroke="#98a0af"/>
+  <rect x="700" y="190" width="120" height="58" rx="8" fill="#303544" stroke="#98a0af"/>
+  <rect x="835" y="190" width="120" height="58" rx="8" fill="#303544" stroke="#98a0af"/>
+  <text x="625" y="226" text-anchor="middle" fill="#eef2f8" font-size="20" font-family="Arial, sans-serif">Google</text>
+  <text x="760" y="226" text-anchor="middle" fill="#eef2f8" font-size="20" font-family="Arial, sans-serif">Microsoft</text>
+  <text x="895" y="218" text-anchor="middle" fill="#eef2f8" font-size="18" font-family="Arial, sans-serif">Datakimia</text>
+  <text x="895" y="238" text-anchor="middle" fill="#eef2f8" font-size="18" font-family="Arial, sans-serif">Auth0</text>
+
+  <rect x="500" y="390" width="500" height="360" rx="14" fill="#20252f" stroke="#616b7a"/>
+  <text x="750" y="426" text-anchor="middle" fill="#d5dae2" font-size="30" font-family="Arial, sans-serif">Datakimia Portal</text>
+  <rect x="610" y="470" width="280" height="64" rx="10" fill="#303544" stroke="#98a0af"/>
+  <text x="750" y="510" text-anchor="middle" fill="#eef2f8" font-size="24" font-family="Arial, sans-serif">Frontend</text>
+  <rect x="610" y="580" width="280" height="64" rx="10" fill="#303544" stroke="#98a0af"/>
+  <text x="750" y="620" text-anchor="middle" fill="#eef2f8" font-size="24" font-family="Arial, sans-serif">Backend</text>
+  <ellipse cx="750" cy="708" rx="90" ry="24" fill="#2f5c11" stroke="#94d06e"/>
+  <rect x="660" y="708" width="180" height="30" fill="#2f5c11" stroke="#94d06e"/>
+  <ellipse cx="750" cy="738" rx="90" ry="24" fill="#2f5c11" stroke="#94d06e"/>
+  <text x="750" y="744" text-anchor="middle" fill="#def3ce" font-size="22" font-family="Arial, sans-serif">Portal DB</text>
+
+  <!-- Right column -->
+  <rect x="1060" y="110" width="370" height="250" rx="14" fill="#20252f" stroke="#616b7a"/>
+  <text x="1245" y="146" text-anchor="middle" fill="#d5dae2" font-size="26" font-family="Arial, sans-serif">AI and Integration</text>
+  <rect x="1095" y="200" width="150" height="58" rx="8" fill="#303544" stroke="#98a0af"/>
+  <rect x="1265" y="200" width="140" height="58" rx="8" fill="#303544" stroke="#98a0af"/>
+  <text x="1170" y="236" text-anchor="middle" fill="#eef2f8" font-size="22" font-family="Arial, sans-serif">Gemini</text>
+  <text x="1335" y="224" text-anchor="middle" fill="#eef2f8" font-size="15" font-family="Arial, sans-serif">Google Conv.</text>
+  <text x="1335" y="244" text-anchor="middle" fill="#eef2f8" font-size="15" font-family="Arial, sans-serif">Analytics API</text>
+
+  <rect x="1060" y="430" width="370" height="320" rx="14" fill="#20252f" stroke="#616b7a"/>
+  <text x="1245" y="466" text-anchor="middle" fill="#d5dae2" font-size="26" font-family="Arial, sans-serif">Active BI Tool</text>
+  <rect x="1110" y="520" width="270" height="60" rx="10" fill="#303544" stroke="#98a0af"/>
+  <text x="1245" y="558" text-anchor="middle" fill="#eef2f8" font-size="22" font-family="Arial, sans-serif">Superset Frontend</text>
+  <rect x="1110" y="610" width="270" height="60" rx="10" fill="#303544" stroke="#98a0af"/>
+  <text x="1245" y="648" text-anchor="middle" fill="#eef2f8" font-size="22" font-family="Arial, sans-serif">Superset Backend</text>
+  <ellipse cx="1245" cy="708" rx="90" ry="24" fill="#2f5c11" stroke="#94d06e"/>
+  <rect x="1155" y="708" width="180" height="30" fill="#2f5c11" stroke="#94d06e"/>
+  <ellipse cx="1245" cy="738" rx="90" ry="24" fill="#2f5c11" stroke="#94d06e"/>
+  <text x="1245" y="744" text-anchor="middle" fill="#def3ce" font-size="22" font-family="Arial, sans-serif">Superset DB</text>
+
+  <!-- Arrows -->
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8d97a8"/>
+    </marker>
+  </defs>
+  <path d="M625 248 C620 340 650 420 690 470" stroke="#8d97a8" stroke-width="3" fill="none" marker-end="url(#arr)"/>
+  <path d="M760 248 C760 350 750 420 750 470" stroke="#8d97a8" stroke-width="3" fill="none" marker-end="url(#arr)"/>
+  <path d="M895 248 C900 340 860 420 810 470" stroke="#8d97a8" stroke-width="3" fill="none" marker-end="url(#arr)"/>
+  <path d="M750 534 L750 580" stroke="#8d97a8" stroke-width="3" fill="none" marker-end="url(#arr)"/>
+  <path d="M750 644 L750 684" stroke="#8d97a8" stroke-width="3" fill="none" marker-end="url(#arr)"/>
+
+  <path d="M890 500 C980 500 1040 520 1110 550" stroke="#8d97a8" stroke-width="3" fill="none" marker-end="url(#arr)"/>
+  <path d="M890 620 C980 620 1040 630 1110 640" stroke="#8d97a8" stroke-width="3" fill="none" marker-end="url(#arr)"/>
+
+  <path d="M1170 258 C1140 360 980 430 890 500" stroke="#8d97a8" stroke-width="2.5" fill="none" stroke-dasharray="6 6" marker-end="url(#arr)"/>
+  <path d="M1335 258 C1310 390 1040 620 890 620" stroke="#8d97a8" stroke-width="2.5" fill="none" stroke-dasharray="6 6" marker-end="url(#arr)"/>
+
+  <path d="M440 260 C500 320 560 420 610 490" stroke="#8d97a8" stroke-width="2.5" fill="none" stroke-dasharray="6 6" marker-end="url(#arr)"/>
+  <path d="M440 590 C520 575 560 540 610 520" stroke="#8d97a8" stroke-width="2.5" fill="none" stroke-dasharray="6 6" marker-end="url(#arr)"/>
+
+  <!-- Legend -->
+  <rect x="560" y="790" width="380" height="60" rx="10" fill="#20252f" stroke="#616b7a"/>
+  <line x1="585" y1="816" x2="655" y2="816" stroke="#8d97a8" stroke-width="3"/>
+  <text x="665" y="822" fill="#d5dae2" font-size="20" font-family="Arial, sans-serif">active</text>
+  <line x1="760" y1="816" x2="830" y2="816" stroke="#8d97a8" stroke-width="3" stroke-dasharray="6 6"/>
+  <text x="840" y="822" fill="#d5dae2" font-size="20" font-family="Arial, sans-serif">planned / not active</text>
+</svg>
