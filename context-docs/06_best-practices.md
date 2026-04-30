@@ -1,37 +1,31 @@
-# Superset Best Practices
+# Buenas Practicas (Datakimia en Superset)
 
-## Architecture
+## Regla de oro de documentacion
 
-- Keep Superset metadata concerns separate from warehouse data concerns.
-- Use engine specs and official extension points before custom forks.
-- Keep deployment stateless at web tier; externalize metadata DB, cache, and workers.
+- Documentar decisiones de Datakimia, no internals del core de Superset.
+- Cada decision debe incluir: motivo, impacto, y rollback.
 
-## API and Security
+## Usuarios y permisos
 
-- Apply least privilege through standard roles and custom roles only when necessary.
-- Validate permission impacts whenever endpoints are migrated or removed.
-- Use strong, non-default `SECRET_KEY` and secure session/cookie settings.
+- Aplicar minimo privilegio por perfil.
+- Evitar usar cuentas admin para validacion funcional.
+- Revisar permisos por dashboard y por dataset antes de publicar.
 
-## Configuration and Flags
+## Dashboards
 
-- Keep `superset_config.py` explicit and environment-scoped.
-- Manage feature flags with lifecycle discipline: test, promote, then retire deprecated flags.
-- Review `UPDATING.md` on every version bump and codify required config changes.
+- Definir owner funcional y owner tecnico.
+- Mantener nomenclatura consistente (area, dominio, KPI).
+- Validar filtros, acceso y performance con rol final.
 
-## Data and Querying
+## Operacion
 
-- Model reusable semantics at dataset level (metrics, columns, time grains).
-- Use caching strategically for high-load dashboards and SQL Lab patterns.
-- Keep warehouse credentials and network access scoped minimally.
+- Cambios en auth/permisos deben salir con checklist de verificacion.
+- Cambios en flags deben documentar estado por ambiente.
+- Cambios en release deben contrastarse con `UPDATING.md`.
 
-## Reliability and Delivery
+## Minimo de entrega para cambios Datakimia
 
-- Treat metadata migrations as release-critical steps with rollback plans.
-- Validate breaking changes and potential downtime notes before deployment.
-- Run focused tests for touched backend/frontend/plugin paths and smoke-test core BI flows.
-
-## Agent Guidelines
-
-- Make minimal, targeted changes and keep docs aligned with behavior.
-- Prefer compatibility-preserving refactors in shared layers.
-- Document operational impact (migrations, flags, permissions, logging) in the same change set.
+1. Nota corta de cambio.
+2. Impacto en usuarios/roles/dashboards.
+3. Evidencia de prueba (al menos smoke).
+4. Plan de rollback.

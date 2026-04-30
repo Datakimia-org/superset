@@ -1,41 +1,51 @@
-# Superset Agent Runbook
+# Runbook de Agentes (Datakimia + Superset)
 
-## Goal
+## Objetivo
 
-Operational checklist for agents working in this Superset repository.
+Checklist operativo para cambios de Datakimia sobre Superset.
 
-## Standard Workflow
+## Flujo estandar
 
 1. Install dependencies
-   - Python deps per project instructions
-   - Frontend deps where needed
-2. Start local runtime (preferred for day-to-day)
-   - Docker Compose or local dev stack
-3. Apply metadata DB migrations before testing changes
-4. Run focused tests/lint for touched areas
-5. Validate upgrade compatibility when config/DB changes are involved
+   - seguir setup del repo
+2. Levantar entorno local
+   - `docker compose up -d`
+3. Validar que la configuracion Datakimia de auth/permisos cargue correctamente
+4. Ejecutar pruebas puntuales sobre cambios tocados
+5. Verificar smoke de acceso a dashboards segun rol
 
-## Common Commands
+## Comandos utiles
 
-- **Dev/bootstrap**
-  - `docker compose up -d`
-  - `docker compose logs -f`
-- **Tests**
-  - `pytest`
-  - Frontend tests for touched plugins/packages
-- **Lint/quality**
-  - Python lint/type checks as configured
-  - Frontend lint/type checks as configured
+- `docker compose up -d`
+- `docker compose logs -f`
+- `pytest` (cuando aplique)
 
-## Upgrade-Safe Change Checklist
+## Checklist de setup inicial (usuarios, permisos, dashboards)
 
-- If touching configuration defaults, verify against `UPDATING.md`.
-- If touching feature flags, update docs and ensure defaults are explicit.
-- If touching API behavior, identify permission impact and migration notes.
-- If touching metadata models/migrations, assess potential downtime impact.
+1. **Usuarios**
+   - crear usuario admin tecnico
+   - crear usuarios por perfil (viewer/editor/admin BI)
+2. **Roles y permisos**
+   - basarse en roles estandar de Superset
+   - agregar solo permisos minimos necesarios
+   - validar acceso por rol en UI
+3. **Dashboards**
+   - asignar owner funcional y owner tecnico
+   - publicar en carpeta/espacio convenido
+   - probar visibilidad por rol antes de release
 
-## Safety Notes
+## Criterio de documentacion
 
-- Do not assume Docker Compose setup is production-ready.
-- Never bypass metadata backup strategy before migration in real environments.
-- Keep changes minimal and scope tests to impacted layers.
+- Si un cambio es core de Superset y no fue modificado por Datakimia, no documentarlo aqui.
+- Documentar solo decision local, impacto operativo y pasos de configuracion.
+
+## Validacion basada en historial del repo
+
+Antes de asumir una regla operativa, validar evidencia en commits Datakimia:
+
+- **Roles y defaults**: `8ddf33960f`, `2486cc209b`, `153f4cd40f`, `1b9bb41ae1`.
+- **Permisos Guest/Public**: `f18c6ce6c0`, `29fe7fc6cb`, `18eaeb6698`, `d550b5cf04`.
+- **Auth providers**: `4b143c499b`, `e4d8d684c3`, `59d3bee812`, `51329dc686`.
+- **Acceso dashboard/permalink**: `aaf7e4f878`, `4ff79c237a`.
+
+Si un comportamiento no aparece en este tipo de commits, tratarlo como supuesto y no como regla.

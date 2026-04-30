@@ -1,32 +1,33 @@
-# Superset Feature Flags
+# Feature Flags (foco Datakimia)
 
-## Convention
+## Regla principal
 
-- Superset flags are configured in `superset_config.py` under `FEATURE_FLAGS`.
-- Flags are boolean and should have explicit values by environment.
-- Canonical flag inventory and maturity is documented in `RESOURCES/FEATURE_FLAGS.md`.
+- Documentar solo flags que Datakimia activa/desactiva explicitamente.
+- No listar todo el catalogo de flags de Superset.
 
-## Usage Patterns
+## Plantilla de documentacion por flag
 
-- **Progressive rollout**
-  - Enable new capabilities in non-prod first.
-  - Promote to production after validation and rollback planning.
-- **Backward compatibility**
-  - Prefer temporary flags for transitions and remove once stable.
-- **Environment control**
-  - Keep production defaults conservative for unstable features.
+- **Flag**: nombre exacto
+- **Decision Datakimia**: ON/OFF por ambiente
+- **Motivo**: problema de producto/operacion que resuelve
+- **Impacto**: usuarios, permisos o dashboards afectados
+- **Rollback**: como volver al estado anterior
 
-## Practical Categories
+## Flags de interes operativo
 
-- **In development**: do not enable in production by default.
-- **In testing**: can be enabled selectively with monitoring.
-- **Stable**: safe baseline for most deployments.
-- **Deprecated**: treat as migration debt; plan removal before major upgrades.
+- `EMBEDDED_SUPERSET` (si aplica a integracion portal)
+- `DASHBOARD_RBAC` (si se usa control fino por dashboard)
+- Cualquier flag no-default que Datakimia decida operar
 
-## Agent Guidance
+## Evidencia de uso en commits Datakimia
 
-- When changing behavior gated by a flag:
-  - document purpose, default, and target environments
-  - validate interaction with RBAC and API contracts
-  - add/adjust notes in upgrade docs if default changes
-- Avoid using flags as permanent config unless Superset explicitly treats them as runtime toggles.
+- `7f3958f6aa`: agrega flag para guardar filtros en dashboard.
+- `3c7b532b64`: habilita Save Filters Set por defecto.
+- `255629119a`: deshabilita Save Filters por defecto.
+- `37ffad21a6` y `ebcf7a6ef1`: habilitan `HORIZONTAL_FILTER_BAR`.
+
+Nota: confirmar estado final por ambiente en configuracion activa, no solo por historial.
+
+## Referencia
+
+Catalogo completo de estado/madurez: `RESOURCES/FEATURE_FLAGS.md`.

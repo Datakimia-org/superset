@@ -1,38 +1,48 @@
-# Superset Backend Architecture
+# Arquitectura Datakimia sobre Superset
 
-## Purpose
+## Objetivo
 
-The Superset backend provides:
+Describir solo la capa de adaptacion de Datakimia alrededor de Superset:
 
-- Authentication, session management, and RBAC authorization.
-- Metadata APIs for databases, datasets, charts, dashboards, SQL Lab, and reports.
-- Query orchestration toward external SQL engines.
-- Integration points for caching, async workers, and alerts/reports.
+- Integracion de autenticacion corporativa.
+- Convenciones de permisos y ownership para dashboards.
+- Flujo de consumo desde Product Portal hacia Superset.
 
-## Layered Architecture
+## Diagrama de capas
 
 ![Superset layered architecture](./img/backend-layered-architecture.svg)
 
-## Main Layers and Responsibilities
+## Capas (solo Datakimia)
 
-- **Web/API layer**
-  - Handles HTTP requests from UI and API clients.
-  - Normalizes payloads and delegates to Superset services.
-- **Security layer**
-  - Enforces role permissions and object-level access.
-  - Applies row-level security policies where configured.
-- **Application/service layer**
-  - Core business logic for exploration, dashboards, and SQL Lab.
-  - Coordinates cache and async operations.
-- **Metadata layer**
-  - Persists platform state: users, roles, datasets, charts, dashboards, reports.
-- **Query/engine layer**
-  - Encapsulates engine-specific SQL behavior and capability checks.
-  - Executes against external warehouses, not metadata DB.
+- **Identidad corporativa**
+  - Login federado (Google/Microsoft/Auth0 Datakimia).
+  - Mapeo de identidad a usuarios/roles en Superset.
+- **Autorizacion funcional**
+  - Definicion de roles por perfil de negocio.
+  - Asignacion de permisos sobre dashboards/datasets por dominio.
+- **Publicacion BI**
+  - Convenciones de ownership, nomenclatura y ciclo de vida de dashboards.
+  - Reglas para promocion entre ambientes.
 
-## Key Characteristics
+## Fuera de alcance
 
-- Strong separation between metadata storage and analytical data sources.
-- Engine abstraction via DB engine specs and SQLAlchemy.
-- Extensibility through plugins, feature flags, and custom configuration.
-- Horizontal scalability via stateless web nodes + shared metadata/cache/task backends.
+- Internals del core de Superset (ORM, engine specs, SQL Lab internals, etc.).
+- Detalle de implementacion de funcionalidades nativas no modificadas por Datakimia.
+
+## Evidencia en commits (Datakimia)
+
+- **Roles/permisos base**
+  - `8ddf33960f` crea rol Guest y default role inicial.
+  - `2486cc209b` cambia default de Alpha a Guest.
+  - `153f4cd40f` agrega rol publico Datakimia.
+  - `1b9bb41ae1` ajusta rol default.
+  - `a798317cac` crea rol `Client_Admin`.
+- **Permisos sobre dashboards y acceso publico**
+  - `f18c6ce6c0` agrega permisos de permalink a Guest.
+  - `29fe7fc6cb` agrega `can_dashboard_permalink`.
+  - `18eaeb6698` agrega `Can_explore_json` para Guest.
+  - `d381177849` agrega permiso para descargar charts embebidos.
+- **Auth/usuarios**
+  - `4b143c499b` y `e4d8d684c3` introducen OAuth.
+  - `59d3bee812` y `51329dc686` config/fix de provider Auth0.
+  - `6f4fb210fe` y `4d3e592782` ajustes de identificación de Guest user.

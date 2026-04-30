@@ -1,35 +1,29 @@
-# Superset Data Model Rules
+# Reglas de Modelo de Datos (Datakimia)
 
-## Source of Truth
+## Alcance
 
-- Metadata models and migrations in Superset are the source of truth for platform state.
-- Application metadata is separate from analytical warehouse schemas.
+Estas reglas cubren solo convenciones de Datakimia para modelar y exponer datos en Superset.
 
-## Core Modeling Principles
+## Principios
 
-- Keep Superset metadata DB scoped to BI application concerns:
-  - users/roles/permissions
-  - datasets/charts/dashboards
-  - SQL Lab state, reports, logs
-- Keep business/analytics data in external engines, accessed via configured database connections.
-- Treat engine-specific behavior through DB engine specs rather than ad-hoc SQL forks.
+- Los datasets publicados deben representar entidades de negocio estables.
+- Evitar logica de negocio compleja incrustada por dashboard; preferir capas de datos previas.
+- Convenciones de naming consistentes para datasets, metricas y dashboards.
 
-## Required Sequence for Metadata Changes
+## Reglas practicas
 
-1. Define model change and migration impact.
-2. Create and review migration for backward compatibility.
-3. Validate on representative metadata DB engine (Postgres/MySQL as applicable).
-4. Assess lock/downtime risk for large tables.
-5. Add upgrade notes to `UPDATING.md` when behavior is incompatible or risky.
+- Definir owners de dataset (funcional + tecnico).
+- Marcar claramente datasets certificados para consumo de negocio.
+- Versionar cambios rompientes en definiciones de metrica o columnas.
 
-## Deployment Rules
+## Checklist antes de publicar dashboards
 
-- Always run metadata migrations before rolling out app code requiring new schema.
-- For potentially locking migrations, schedule maintenance windows.
-- Maintain rollback path (backup/restore or tested downgrade strategy).
+1. Dataset con nombre y descripcion de negocio.
+2. Metricas criticas validadas con stakeholders.
+3. Permisos revisados por rol objetivo.
+4. Dashboard testeado con cuenta no-admin.
 
-## Data Boundary Rules
+## Fuera de alcance
 
-- Do not store raw warehouse data in metadata DB.
-- Do not couple dashboard/chart behavior to warehouse-specific hacks when an engine spec abstraction exists.
-- Prefer semantic definitions (metrics, columns, time grains) over repeated SQL per chart.
+- Explicacion del modelo interno del metadata DB de Superset.
+- Mecanica interna de migraciones core sin customizacion Datakimia.
