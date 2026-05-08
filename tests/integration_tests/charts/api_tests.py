@@ -311,6 +311,22 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
             "can_warm_up_cache",
         }
 
+    def test_info_security_chart_rison_permissions_query(self):
+        """
+        Chart API: regression for headless info permissions query
+        """
+        self.login(ADMIN_USERNAME)
+        uri = "api/v1/chart/_info?q=(keys:!(permissions))"
+        rv = self.get_assert_metric(uri, "info")
+        data = json.loads(rv.data.decode("utf-8"))
+        assert rv.status_code == 200
+        assert set(data["permissions"]) == {
+            "can_read",
+            "can_write",
+            "can_export",
+            "can_warm_up_cache",
+        }
+
     def create_chart_import(self):
         buf = BytesIO()
         with ZipFile(buf, "w") as bundle:

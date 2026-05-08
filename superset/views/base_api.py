@@ -444,10 +444,11 @@ class BaseSupersetModelRestApi(BaseSupersetApiMixin, ModelRestApi):
         resource_name = getattr(self, "resource_name", None)
         path = request.path.rstrip("/")
         should_cache = resource_name == "chart" and path == "/api/v1/chart/_info"
+        super_info_headless = super().info_headless
 
         def get_or_compute() -> Response:
             if not should_cache:
-                return super().info_headless(**kwargs)
+                return super_info_headless(**kwargs)
 
             if security_manager.is_guest_user():
                 # Prevent guest-token info leakage by making the cache key dependent
@@ -480,7 +481,7 @@ class BaseSupersetModelRestApi(BaseSupersetApiMixin, ModelRestApi):
                 )
 
             logger.debug("Chart info cache miss: %s", cache_key)
-            response = super().info_headless(**kwargs)
+            response = super_info_headless(**kwargs)
             if (
                 response.status_code == 200
                 and not isinstance(cache_manager.cache.cache, NullCache)
