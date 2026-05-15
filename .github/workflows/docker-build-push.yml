@@ -6,6 +6,7 @@ on:
     branches:
       - master
       - dev
+      - dev-test
       - demo
       - preprod
       - upgrade
@@ -57,6 +58,8 @@ jobs:
             echo "IMAGE_PERMANENT_TAG=latest" >> $GITHUB_ENV
           elif [[ "${GITHUB_REF##*/}" == "dev" ]]; then
             echo "IMAGE_PERMANENT_TAG=dev" >> $GITHUB_ENV
+          elif [[ "${GITHUB_REF##*/}" == "dev-test" ]]; then
+            echo "IMAGE_PERMANENT_TAG=dev-test" >> $GITHUB_ENV
           elif [[ "${GITHUB_REF##*/}" == "demo" ]]; then
             echo "IMAGE_PERMANENT_TAG=demo" >> $GITHUB_ENV  
           elif [[ "${GITHUB_REF##*/}" == "preprod" ]]; then
