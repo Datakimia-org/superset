@@ -39,7 +39,6 @@ interface ActionButtonsProps {
   onClearAll: () => void;
   onHistory?: () => void;
   onSave: () => void;
-  showSaveFilterActions?: boolean;
   dataMaskSelected: DataMaskState;
   dataMaskApplied: DataMaskStateWithId;
   isApplyDisabled: boolean;
@@ -122,7 +121,6 @@ const ActionButtons = ({
   onClearAll,
   onHistory,
   onSave,
-  showSaveFilterActions = true,
   dataMaskApplied,
   dataMaskSelected,
   isApplyDisabled,
@@ -160,7 +158,7 @@ const ActionButtons = ({
       >
         {isVertical ? t('Apply filters') : t('Apply')}
       </Button>
-      {isSaveEnabled && showSaveFilterActions && (
+      {isSaveEnabled && (
         <Button
           disabled={isSaveDisabled}
           buttonStyle="primary"
@@ -171,7 +169,7 @@ const ActionButtons = ({
           {t('Save')}
         </Button>
       )}
-      {isSaveEnabled && showSaveFilterActions && (
+      {isSaveEnabled && (
         <Button
           buttonStyle="secondary"
           buttonSize="small"
