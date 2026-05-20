@@ -376,6 +376,7 @@ const FilterBar: FC<FiltersBarProps> = ({
       dataMaskApplied={dataMaskApplied}
       isApplyDisabled={isApplyDisabled}
       isSaveDisabled={isSaveDisabled}
+      showSaveFilterActions={showSaveFilterActions}
     />
   );
 
