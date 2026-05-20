@@ -589,6 +589,25 @@ class TestDashboardApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCas
             "can_cache_dashboard_screenshot",
         }
 
+    def test_info_security_dashboard_rison_permissions_query(self):
+        """
+        Dashboard API: regression for headless info permissions query
+        """
+        self.login(ADMIN_USERNAME)
+        uri = "api/v1/dashboard/_info?q=(keys:!(permissions))"
+        rv = self.get_assert_metric(uri, "info")
+        data = json.loads(rv.data.decode("utf-8"))
+        assert rv.status_code == 200
+        assert set(data["permissions"]) == {
+            "can_read",
+            "can_write",
+            "can_export",
+            "can_get_embedded",
+            "can_delete_embedded",
+            "can_set_embedded",
+            "can_cache_dashboard_screenshot",
+        }
+
     @pytest.mark.usefixtures("load_world_bank_dashboard_with_slices")
     def test_get_dashboard_not_found(self):
         """
