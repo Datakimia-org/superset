@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import moment, { Moment } from 'moment';
 import {
   styled,
@@ -29,14 +29,14 @@ const MOMENT_FORMAT = 'YYYY-MM-DD[T]HH:mm:ss';
 const PopoverContainer = styled.div`
   display: flex;
   flex-direction: column;
-  
+
   .content {
     display: flex;
     flex-direction: row;
     gap: 16px;
     margin-bottom: 16px;
   }
-  
+
   .presets {
     display: flex;
     flex-direction: column;
@@ -45,7 +45,7 @@ const PopoverContainer = styled.div`
     padding-right: 16px;
     min-width: 150px;
   }
-  
+
   .picker {
     display: flex;
     flex-direction: column;
@@ -69,7 +69,7 @@ const PopoverContainer = styled.div`
     color: ${({ theme }) => theme.colors.grayscale.dark1};
     font-size: ${({ theme }) => theme.typography.sizes.s}px;
     transition: background 0.2s;
-    
+
     &:hover {
       background: ${({ theme }) => theme.colors.grayscale.light4};
     }
@@ -102,7 +102,7 @@ export default function CalendarDatePicker({
   const [show, setShow] = useState(false);
   const [tempValue, setTempValue] = useState(value);
   const [actualTimeRange, setActualTimeRange] = useState(value);
-  const [valid, setValid] = useState(true);
+  const [, setValid] = useState(true);
   const theme = useTheme();
   const [labelRef, labelIsTruncated] = useCSSTextTruncation<HTMLSpanElement>();
 
@@ -140,7 +140,7 @@ export default function CalendarDatePicker({
   };
 
   // Determine if tempValue is a custom range
-  const isCustom = tempValue && tempValue.includes(' : ');
+  const isCustom = tempValue.includes(' : ');
   let customDates: [Moment, Moment] | null = null;
   if (isCustom) {
     const parts = tempValue.split(' : ');
@@ -166,36 +166,61 @@ export default function CalendarDatePicker({
 
   const overlayContent = (
     <PopoverContainer>
-       <div className="content">
-         <div className="presets">
-           <strong>{t('Presets')}</strong>
-           {PRESETS.map(preset => (
-             <button
-               key={preset.value}
-               type="button"
-               className={`preset-btn ${tempValue === preset.value ? 'active' : ''}`}
-               onClick={() => setTempValue(preset.value)}
-             >
-               {preset.label}
-             </button>
-           ))}
-         </div>
-         <div className="picker">
-           <strong>{t('Custom Range')}</strong>
-           <RangePicker
-             value={customDates as any}
-             onChange={handleCustomChange as any}
-             allowClear={false}
-           />
-           <div style={{ marginTop: 16, fontSize: '12px', color: theme.colors.grayscale.base }}>
-             {t('Selected')}: <strong>{tempValue === NO_TIME_RANGE ? t('No filter') : tempValue}</strong>
-           </div>
-         </div>
-       </div>
-       <div className="footer">
-        <Button buttonStyle="secondary" onClick={handleClose} data-test="date-filter-cancel">{t('CANCEL')}</Button>
-        <Button buttonStyle="primary" onClick={handleApply} style={{ marginLeft: 8 }} disabled={!tempValue} data-test="date-filter-apply">{t('APPLY')}</Button>
-       </div>
+      <div className="content">
+        <div className="presets">
+          <strong>{t('Presets')}</strong>
+          {PRESETS.map(preset => (
+            <button
+              key={preset.value}
+              type="button"
+              className={`preset-btn ${
+                tempValue === preset.value ? 'active' : ''
+              }`}
+              onClick={() => setTempValue(preset.value)}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+        <div className="picker">
+          <strong>{t('Custom Range')}</strong>
+          <RangePicker
+            value={customDates as any}
+            onChange={handleCustomChange as any}
+            allowClear={false}
+          />
+          <div
+            style={{
+              marginTop: 16,
+              fontSize: '12px',
+              color: theme.colors.grayscale.base,
+            }}
+          >
+            {t('Selected')}:{' '}
+            <strong>
+              {tempValue === NO_TIME_RANGE ? t('No filter') : tempValue}
+            </strong>
+          </div>
+        </div>
+      </div>
+      <div className="footer">
+        <Button
+          buttonStyle="secondary"
+          onClick={handleClose}
+          data-test="date-filter-cancel"
+        >
+          {t('CANCEL')}
+        </Button>
+        <Button
+          buttonStyle="primary"
+          onClick={handleApply}
+          style={{ marginLeft: 8 }}
+          disabled={!tempValue}
+          data-test="date-filter-apply"
+        >
+          {t('APPLY')}
+        </Button>
+      </div>
     </PopoverContainer>
   );
 
@@ -205,15 +230,22 @@ export default function CalendarDatePicker({
       trigger="click"
       content={overlayContent}
       title={
-        <span style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
-          <Icons.EditAlt iconColor={theme.colors.grayscale.base} style={{ marginRight: 8 }} />
+        <span
+          style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center' }}
+        >
+          <Icons.EditAlt
+            iconColor={theme.colors.grayscale.base}
+            style={{ marginRight: 8 }}
+          />
           {t('Edit time range')}
         </span>
       }
       visible={show}
-      onVisibleChange={(visible) => visible ? handleOpen() : handleClose()}
+      onVisibleChange={visible => (visible ? handleOpen() : handleClose())}
       getPopupContainer={triggerNode =>
-        isOverflowingFilterBar ? (triggerNode.parentNode as HTMLElement) : document.body
+        isOverflowingFilterBar
+          ? (triggerNode.parentNode as HTMLElement)
+          : document.body
       }
     >
       <Tooltip
