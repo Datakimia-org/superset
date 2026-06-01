@@ -230,9 +230,7 @@ export default function CalendarDatePicker({
       trigger="click"
       content={overlayContent}
       title={
-        <span
-          style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center' }}
-        >
+        <span style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
           <Icons.EditAlt
             iconColor={theme.colors.grayscale.base}
             style={{ marginRight: 8 }}
