@@ -18,7 +18,7 @@
 const loadModule = () => {
   try {
     // eslint-disable-next-line global-require, import/no-unresolved
-    return require('../../../superset_text') || {};
+    return require('../../../superset_text.yml') || {};
   } catch (e) {
     return {};
   }
