@@ -206,14 +206,19 @@ export default function CalendarDatePicker({
       content={overlayContent}
       title={
         <span style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
-          <Icons.EditAlt iconColor={theme.colors.grayscale.base} style={{ marginRight: 8 }} />
+          <Icons.EditAlt
+            iconColor={theme.colors.grayscale.base}
+            style={{ marginRight: 8 }}
+          />
           {t('Edit time range')}
         </span>
       }
       visible={show}
-      onVisibleChange={(visible) => visible ? handleOpen() : handleClose()}
+      onVisibleChange={visible => (visible ? handleOpen() : handleClose())}
       getPopupContainer={triggerNode =>
-        isOverflowingFilterBar ? (triggerNode.parentNode as HTMLElement) : document.body
+        isOverflowingFilterBar
+          ? (triggerNode.parentNode as HTMLElement)
+          : document.body
       }
     >
       <Tooltip
