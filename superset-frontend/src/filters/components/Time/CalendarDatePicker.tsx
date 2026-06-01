@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import moment, { Moment } from 'moment';
 import {
   styled,
@@ -26,17 +26,17 @@ export interface CalendarDatePickerProps {
 
 const MOMENT_FORMAT = 'YYYY-MM-DD[T]HH:mm:ss';
 
-const PopoverContainer = styled.div`
+const PopoverContainer = styled.div\`
   display: flex;
   flex-direction: column;
-  
+
   .content {
     display: flex;
     flex-direction: row;
     gap: 16px;
     margin-bottom: 16px;
   }
-  
+
   .presets {
     display: flex;
     flex-direction: column;
@@ -102,22 +102,18 @@ export default function CalendarDatePicker({
   const [show, setShow] = useState(false);
   const [tempValue, setTempValue] = useState(value);
   const [actualTimeRange, setActualTimeRange] = useState(value);
-  const [valid, setValid] = useState(true);
   const theme = useTheme();
   const [labelRef, labelIsTruncated] = useCSSTextTruncation<HTMLSpanElement>();
 
   useEffect(() => {
     if (value === NO_TIME_RANGE) {
       setActualTimeRange(t('No filter'));
-      setValid(true);
       return;
     }
     fetchTimeRange(value).then(({ value: actualRange, error }) => {
       if (error) {
-        setValid(false);
         setActualTimeRange(error);
       } else {
-        setValid(true);
         setActualTimeRange(actualRange || value);
       }
     });
