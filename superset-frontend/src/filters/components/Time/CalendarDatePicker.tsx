@@ -14,6 +14,11 @@ import ControlPopover from 'src/explore/components/controls/ControlPopover/Contr
 import { DateLabel } from 'src/explore/components/controls/DateFilterControl/components';
 import { Tooltip } from 'src/components/Tooltip';
 import Icons from 'src/components/Icons';
+import {
+  CALENDAR_DATE_PICKER_PRESET_VALUES,
+  isCalendarPresetActive,
+  normalizeCalendarPresetValue,
+} from './calendarDatePickerPresets';
 
 export interface CalendarDatePickerProps {
   value: string;
@@ -83,13 +88,31 @@ const PopoverContainer = styled.div`
 
 const PRESETS = [
   { label: t('No filter'), value: NO_TIME_RANGE },
-  { label: t('Today'), value: 'Current day' },
-  { label: t('This week'), value: 'Current week' },
-  { label: t('This month'), value: 'Current month' },
-  { label: t('This year'), value: 'Current year' },
-  { label: t('Last week'), value: 'Last week' },
-  { label: t('Last month'), value: 'Last month' },
-  { label: t('Last year'), value: 'Last year' },
+  { label: t('Today'), value: CALENDAR_DATE_PICKER_PRESET_VALUES.currentDay },
+  {
+    label: t('This week'),
+    value: CALENDAR_DATE_PICKER_PRESET_VALUES.currentWeek,
+  },
+  {
+    label: t('This month'),
+    value: CALENDAR_DATE_PICKER_PRESET_VALUES.currentMonth,
+  },
+  {
+    label: t('This year'),
+    value: CALENDAR_DATE_PICKER_PRESET_VALUES.currentYear,
+  },
+  {
+    label: t('Last week'),
+    value: CALENDAR_DATE_PICKER_PRESET_VALUES.previousWeek,
+  },
+  {
+    label: t('Last month'),
+    value: CALENDAR_DATE_PICKER_PRESET_VALUES.previousMonth,
+  },
+  {
+    label: t('Last year'),
+    value: CALENDAR_DATE_PICKER_PRESET_VALUES.previousYear,
+  },
 ];
 
 export default function CalendarDatePicker({
@@ -120,7 +143,7 @@ export default function CalendarDatePicker({
   }, [value]);
 
   const handleOpen = () => {
-    setTempValue(value);
+    setTempValue(normalizeCalendarPresetValue(value));
     setShow(true);
     onOpenPopover?.();
   };
@@ -131,7 +154,7 @@ export default function CalendarDatePicker({
   };
 
   const handleApply = () => {
-    onChange(tempValue);
+    onChange(normalizeCalendarPresetValue(tempValue));
     handleClose();
   };
 
@@ -170,7 +193,7 @@ export default function CalendarDatePicker({
               key={preset.value}
               type="button"
               className={`preset-btn ${
-                tempValue === preset.value ? 'active' : ''
+                isCalendarPresetActive(tempValue, preset.value) ? 'active' : ''
               }`}
               onClick={() => setTempValue(preset.value)}
             >
