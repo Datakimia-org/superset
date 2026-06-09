@@ -164,9 +164,21 @@ export default function CalendarDatePicker({
   if (isCustom) {
     const parts = tempValue.split(' : ');
     if (parts.length === 2) {
-      const start = moment(parts[0]);
-      const end = moment(parts[1]);
-      if (start.isValid() && end.isValid()) {
+      const startUtc = moment.utc(parts[0]);
+      const untilUtc = moment.utc(parts[1]);
+      if (startUtc.isValid() && untilUtc.isValid()) {
+        const start = moment([
+          startUtc.year(),
+          startUtc.month(),
+          startUtc.date(),
+        ]);
+        let endUtc = untilUtc;
+        if (parts[1].endsWith('T00:00:00')) {
+          endUtc = untilUtc.clone().subtract(1, 'day');
+        } else if (parts[1].endsWith('T23:59:59')) {
+          endUtc = untilUtc.clone().startOf('day');
+        }
+        const end = moment([endUtc.year(), endUtc.month(), endUtc.date()]);
         customDates = [start, end];
       }
     }
@@ -174,10 +186,14 @@ export default function CalendarDatePicker({
 
   const handleCustomChange = (dates: [Moment, Moment] | null) => {
     if (dates && dates.length === 2) {
-      // Save exact dates the user picked, matching the old custom exact filter behavior
-      const start = dates[0].startOf('day').format(MOMENT_FORMAT);
-      const end = dates[1].endOf('day').format(MOMENT_FORMAT);
-      setTempValue(`${start} : ${end}`);
+      const start = dates[0].clone().utc().startOf('day').format(MOMENT_FORMAT);
+      const until = dates[1]
+        .clone()
+        .utc()
+        .startOf('day')
+        .add(1, 'day')
+        .format(MOMENT_FORMAT);
+      setTempValue(`${start} : ${until}`);
     } else {
       setTempValue(NO_TIME_RANGE);
     }
