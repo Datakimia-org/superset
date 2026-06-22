@@ -186,10 +186,9 @@ export default function CalendarDatePicker({
 
   const handleCustomChange = (dates: [Moment, Moment] | null) => {
     if (dates && dates.length === 2) {
-      const start = dates[0].clone().utc().startOf('day').format(MOMENT_FORMAT);
+      const start = dates[0].clone().startOf('day').format(MOMENT_FORMAT);
       const until = dates[1]
         .clone()
-        .utc()
         .startOf('day')
         .add(1, 'day')
         .format(MOMENT_FORMAT);
