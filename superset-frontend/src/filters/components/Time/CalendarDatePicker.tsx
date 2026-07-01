@@ -115,6 +115,50 @@ const PRESETS = [
   },
 ];
 
+const getPresetDates = (presetValue: string): [Moment, Moment] | null => {
+  const today = moment().startOf('day');
+  const currentWeekStart = today.clone().startOf('isoWeek');
+  const currentMonthStart = today.clone().startOf('month');
+  const currentYearStart = today.clone().startOf('year');
+
+  switch (presetValue) {
+    case CALENDAR_DATE_PICKER_PRESET_VALUES.currentDay:
+      return [today.clone(), today.clone()];
+    case CALENDAR_DATE_PICKER_PRESET_VALUES.currentWeek:
+      return [
+        currentWeekStart.clone(),
+        currentWeekStart.clone().add(1, 'week').subtract(1, 'day'),
+      ];
+    case CALENDAR_DATE_PICKER_PRESET_VALUES.currentMonth:
+      return [
+        currentMonthStart.clone(),
+        currentMonthStart.clone().add(1, 'month').subtract(1, 'day'),
+      ];
+    case CALENDAR_DATE_PICKER_PRESET_VALUES.currentYear:
+      return [
+        currentYearStart.clone(),
+        currentYearStart.clone().add(1, 'year').subtract(1, 'day'),
+      ];
+    case CALENDAR_DATE_PICKER_PRESET_VALUES.previousWeek:
+      return [
+        currentWeekStart.clone().subtract(1, 'week'),
+        currentWeekStart.clone().subtract(1, 'day'),
+      ];
+    case CALENDAR_DATE_PICKER_PRESET_VALUES.previousMonth:
+      return [
+        currentMonthStart.clone().subtract(1, 'month'),
+        currentMonthStart.clone().subtract(1, 'day'),
+      ];
+    case CALENDAR_DATE_PICKER_PRESET_VALUES.previousYear:
+      return [
+        currentYearStart.clone().subtract(1, 'year'),
+        currentYearStart.clone().subtract(1, 'day'),
+      ];
+    default:
+      return null;
+  }
+};
+
 export default function CalendarDatePicker({
   value,
   onChange,
@@ -160,7 +204,7 @@ export default function CalendarDatePicker({
 
   // Determine if tempValue is a custom range
   const isCustom = tempValue.includes(' : ');
-  let customDates: [Moment, Moment] | null = null;
+  let customDates: [Moment, Moment] | null = getPresetDates(tempValue);
   if (isCustom) {
     const parts = tempValue.split(' : ');
     if (parts.length === 2) {
