@@ -59,7 +59,34 @@ EXAMPLES_DB = os.getenv("EXAMPLES_DB")
 
 COLOR_SCHEMES = os.getenv("COLOR_SCHEMES")
 
-WEBDRIVER_BASEURL = os.getenv("WEBDRIVER_BASEURL")
+# Internal URL for Selenium inside superset-worker (Docker/K8s service, not public ingress).
+# DP-1020: pointing this at the public URL causes 499/timeouts in WebDriverWait.
+_WEBDRIVER_INTERNAL_DEFAULT = "http://superset:8088/"
+WEBDRIVER_BASEURL = os.getenv("WEBDRIVER_BASEURL", _WEBDRIVER_INTERNAL_DEFAULT)
+if WEBDRIVER_BASEURL and not WEBDRIVER_BASEURL.endswith("/"):
+    WEBDRIVER_BASEURL += "/"
+
+# Public URL for hyperlinks in report emails/notifications.
+WEBDRIVER_BASEURL_USER_FRIENDLY = os.getenv(
+    "WEBDRIVER_BASEURL_USER_FRIENDLY",
+    "http://superset-datakimia:8088/",
+)
+if WEBDRIVER_BASEURL_USER_FRIENDLY and not WEBDRIVER_BASEURL_USER_FRIENDLY.endswith("/"):
+    WEBDRIVER_BASEURL_USER_FRIENDLY += "/"
+
+WEBDRIVER_TYPE = os.getenv("WEBDRIVER_TYPE", "firefox")
+WEBDRIVER_OPTION_ARGS = (
+    ["--headless"]
+    if WEBDRIVER_TYPE == "firefox"
+    else [
+        "--headless",
+        "--disable-gpu",
+        "--disable-dev-shm-usage",
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-extensions",
+    ]
+)
 
 # Read the environment variable
 oauth2_providers = os.getenv('OAUTH2_PROVIDERS')
@@ -217,6 +244,10 @@ FEATURE_FLAGS = {
     "ENABLE_JAVASCRIPT_CONTROLS":True,
     "HTML_SANITIZATION": False,
     "TALISMAN_ENABLED": False,
+    "PLAYWRIGHT_REPORTS_AND_THUMBNAILS": os.getenv(
+        "PLAYWRIGHT_REPORTS_AND_THUMBNAILS", "false"
+    ).lower()
+    == "true",
 }
 
 
@@ -229,14 +260,17 @@ THUMBNAIL_CACHE_CONFIG: CacheConfig = {
     'CACHE_KEY_PREFIX': 'thumbnail_',
     'CACHE_REDIS_URL': f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_RESULTS_DB}"
 }
-SCREENSHOT_LOCATE_WAIT=int(timedelta(seconds=120).total_seconds())
+# 120s: chart containers can appear after slow SQL (e.g. pg_sleep in repro).
+SCREENSHOT_LOCATE_WAIT = int(timedelta(seconds=120).total_seconds())
+# 120s: wait for ".loading" to disappear; must exceed slow query + render time.
+SCREENSHOT_LOAD_WAIT = int(timedelta(seconds=120).total_seconds())
+
+ALERT_REPORTS_EXECUTE_AS = [ExecutorType.SELENIUM]
 
 FAB_API_MAX_PAGE_SIZE = 5000
 
 
 ALERT_REPORTS_NOTIFICATION_DRY_RUN = True
-# The base URL for the email report hyperlinks.
-WEBDRIVER_BASEURL_USER_FRIENDLY = WEBDRIVER_BASEURL
 
 # Async query configuration
 SQLLAB_ASYNC_TIME_LIMIT_SEC = 60 * 60 * 6
