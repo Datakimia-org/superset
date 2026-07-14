@@ -66,18 +66,26 @@ export const CALENDAR_DATE_PICKER_PRESETS = [
     value: CALENDAR_DATE_PICKER_PRESET_VALUES.currentYear,
   },
   {
-    label: t('Last week'),
+    label: t('Previous week'),
     value: CALENDAR_DATE_PICKER_PRESET_VALUES.previousWeek,
   },
   {
-    label: t('Last month'),
+    label: t('Previous month'),
     value: CALENDAR_DATE_PICKER_PRESET_VALUES.previousMonth,
   },
   {
-    label: t('Last year'),
+    label: t('Previous year'),
     value: CALENDAR_DATE_PICKER_PRESET_VALUES.previousYear,
   },
 ];
+
+export function getCalendarPresetLabel(value: string): string | null {
+  const normalized = normalizeCalendarPresetValue(value);
+  const preset = CALENDAR_DATE_PICKER_PRESETS.find(
+    ({ value: presetValue }) => presetValue === normalized,
+  );
+  return preset?.label ?? null;
+}
 
 export function getPresetDates(presetValue: string): [Moment, Moment] | null {
   const today = moment().startOf('day');

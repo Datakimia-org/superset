@@ -16,6 +16,7 @@ import { Tooltip } from 'src/components/Tooltip';
 import Icons from 'src/components/Icons';
 import {
   CALENDAR_DATE_PICKER_PRESETS,
+  getCalendarPresetLabel,
   getPresetDates,
   isCalendarPresetActive,
   normalizeCalendarPresetValue,
@@ -204,7 +205,9 @@ export default function CalendarDatePicker({
           >
             {t('Selected')}:{' '}
             <strong>
-              {tempValue === NO_TIME_RANGE ? t('No filter') : tempValue}
+              {tempValue === NO_TIME_RANGE
+                ? t('No filter')
+                : getCalendarPresetLabel(tempValue) ?? tempValue}
             </strong>
           </div>
         </div>
