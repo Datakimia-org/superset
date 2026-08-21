@@ -23,3 +23,4 @@ La autenticacion centralizada (Google/Microsoft/Auth0 Datakimia) habilita acceso
 
 - El diagrama es de contexto de producto (no de implementacion interna de Superset).
 - Las guias operativas de Datakimia estan en `01` a `06`.
+- La migracion 4.1.1 → 6.1 esta en `migration/` (`00` stakeholders, `01` fork, `02` changelogs, `03` notas tecnicas).
