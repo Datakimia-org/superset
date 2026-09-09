@@ -22,7 +22,7 @@ ARG PY_VER=3.11.12-slim-bookworm
 
 # if BUILDPLATFORM is null, set it to 'amd64' (or leave as is otherwise).
 ARG BUILDPLATFORM=${BUILDPLATFORM:-amd64}
-FROM --platform=${BUILDPLATFORM} node:18-bullseye-slim AS superset-node
+FROM --platform=${BUILDPLATFORM} node:18-bookworm-slim AS superset-node
 
 ARG NPM_BUILD_CMD="build"
 
@@ -92,7 +92,7 @@ COPY --chown=superset:superset requirements/base.txt requirements/
 RUN --mount=type=cache,target=/root/.cache/pip \
   apt-get update -qq && apt-get install -yqq --no-install-recommends \
   build-essential \
-  && pip install --upgrade setuptools pip \
+  && pip install --upgrade pip \
   && pip install -r requirements/base.txt \
   && apt-get autoremove -yqq --purge build-essential \
   && rm -rf /var/lib/apt/lists/*
