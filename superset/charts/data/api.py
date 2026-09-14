@@ -51,7 +51,10 @@ from superset.utils.core import (
     DatasourceType,
     get_user_id,
 )
-from superset.utils.hashing import md5_sha_from_dict
+from superset.charts.data.cache_keys import (
+    chart_data_api_cache_key,
+    guest_chart_data_cache_context,
+)
 from superset.utils.decorators import logs_context
 from superset.views.base import CsvResponse, generate_download_headers, XlsxResponse
 from superset.views.base_api import statsd_metrics
@@ -252,18 +255,11 @@ class ChartDataRestApi(ChartRestApi):
         api_cache_miss = False
         if can_cache:
             if security_manager.is_guest_user():
-                guest_user = g.user
-                cache_payload = {
-                    "username": getattr(guest_user, "username", None),
-                    "resources": getattr(guest_user, "resources", None),
-                    "rls": getattr(guest_user, "rls", None),
-                }
-                cache_context = md5_sha_from_dict(cache_payload)
+                cache_context = guest_chart_data_cache_context(g.user)
             else:
                 cache_context = get_user_id()
 
-            body_hash = md5_sha_from_dict(json_body)
-            cache_key = f"chart_data_api:{cache_context}:{body_hash}"
+            cache_key = chart_data_api_cache_key(json_body, cache_context)
 
             cached = cache_manager.cache.get(cache_key)
             if cached is not None:
