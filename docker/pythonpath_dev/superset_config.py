@@ -22,17 +22,16 @@
 #
 import logging
 import os
+import sys
 
 import json
 from datetime import timedelta
 from celery.schedules import crontab
 from flask_caching.backends.rediscache import RedisCache
-from superset.tasks.types import ExecutorType
+from superset.tasks.types import FixedExecutor
 from superset.superset_typing import CacheConfig
 
 #auth libs
-from superset.superset_typing import CacheConfig
-from superset.tasks.types import ExecutorType
 from custom_sso_security_manager import CustomSsoSecurityManager
 CUSTOM_SECURITY_MANAGER = CustomSsoSecurityManager
 from flask_appbuilder.security.manager import AUTH_OAUTH
@@ -231,7 +230,6 @@ DASHBOARD_FILTERS_SAVE = os.getenv("DASHBOARD_FILTERS_SAVE", "false") == "true"
 FEATURE_FLAGS = {
     "DASHBOARD_FILTERS_SAVE": DASHBOARD_FILTERS_SAVE,
     "ALERT_REPORTS": True,
-    "KV_STORE": True,
     "SCHEDULED_QUERIES": True,    
     "EMBEDDED_SUPERSET": True, 
     "TAGGING_SYSTEM": True, 
@@ -251,8 +249,8 @@ FEATURE_FLAGS = {
 }
 
 
-THUMBNAIL_SELENIUM_USER = "admin"
-THUMBNAIL_EXECUTE_AS = [ExecutorType.SELENIUM]
+# 5.0 replaced THUMBNAIL_SELENIUM_USER / THUMBNAIL_EXECUTE_AS with THUMBNAIL_EXECUTORS.
+THUMBNAIL_EXECUTORS = [FixedExecutor("admin")]
 
 THUMBNAIL_CACHE_CONFIG: CacheConfig = {
     'CACHE_TYPE': 'redis',
@@ -265,7 +263,7 @@ SCREENSHOT_LOCATE_WAIT = int(timedelta(seconds=120).total_seconds())
 # 120s: wait for ".loading" to disappear; must exceed slow query + render time.
 SCREENSHOT_LOAD_WAIT = int(timedelta(seconds=120).total_seconds())
 
-ALERT_REPORTS_EXECUTE_AS = [ExecutorType.SELENIUM]
+ALERT_REPORTS_EXECUTORS = [FixedExecutor("admin")]
 
 FAB_API_MAX_PAGE_SIZE = 5000
 
@@ -411,6 +409,21 @@ EXTRA_CATEGORICAL_COLOR_SCHEMES = json.loads(COLOR_SCHEMES)
 # Increase dashboard layout JSON size limit
 # Fix Your dashboard is too large. Please reduce its size before saving it [https://jira-datakimia.atlassian.net/browse/DP-832]
 SUPERSET_DASHBOARD_POSITION_DATA_LIMIT = 131072  # 128 KB, adjust as needed
+
+log_level_text = os.getenv("SUPERSET_LOG_LEVEL", "INFO")
+LOG_LEVEL = getattr(logging, log_level_text.upper(), logging.INFO)
+
+if os.getenv("CYPRESS_CONFIG") == "true":
+    # When running the service as a cypress backend, we need to import the config
+    # located @ tests/integration_tests/superset_test_config.py
+    base_dir = os.path.dirname(__file__)
+    module_folder = os.path.abspath(
+        os.path.join(base_dir, "../../tests/integration_tests/")
+    )
+    sys.path.insert(0, module_folder)
+    from superset_test_config import *  # noqa
+
+    sys.path.pop(0)
 
 #
 # Optionally import superset_config_docker.py (which will have been included on

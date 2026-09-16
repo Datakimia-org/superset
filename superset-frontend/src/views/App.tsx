@@ -25,9 +25,11 @@ import {
   useLocation,
 } from 'react-router-dom';
 import { bindActionCreators } from 'redux';
+import { css } from '@superset-ui/core';
 import { GlobalStyles } from 'src/GlobalStyles';
 import ErrorBoundary from 'src/components/ErrorBoundary';
 import Loading from 'src/components/Loading';
+import { Layout } from 'src/components';
 import Menu from 'src/features/home/Menu';
 import getBootstrapData from 'src/utils/getBootstrapData';
 import ToastContainer from 'src/components/MessageToasts/ToastContainer';
@@ -73,16 +75,11 @@ const LocationPathnameLogger = () => {
 };
 
 function hasOnlyDefaultRole(data: BootstrapData) {
-  // Check if the user exists and has permissions and roles
   if (data.user && isUserWithPermissionsAndRoles(data.user)) {
-    // Extract the roles of the user
     const userRoles = data.user.roles;
-    // Get an array of role names
     const roleNames = Object.keys(userRoles);
-    // Return true if there is exactly one role and it is named "Default"
     return roleNames.length === 1 && roleNames[0] === 'Default';
   }
-  // Return false if the user does not exist or does not have the required structure
   return false;
 }
 
@@ -97,22 +94,16 @@ const App = () => {
   useEffect(() => {
     const handleWindowOpen = async () => {
       try {
-        // Check if the window was opened by another window
         if (window.opener) {
-          // Verify if the user has only the "Default" role
           if (hasOnlyDefaultRole(bootstrapData)) {
-            // Send a message to the opener window
             window.opener.postMessage(
               {
                 type: 'OAUTH2_SUCCESS',
-                data: {
-                  // Add any additional data to send
-                },
+                data: {},
               },
               '*',
             );
           } else {
-            // Clear all cookies before proceeding
             await closeSession();
           }
         }
@@ -122,9 +113,8 @@ const App = () => {
       }
     };
 
-    // Call the async function
     handleWindowOpen();
-  }, []); // Empty dependency array means this runs once when component mounts
+  }, []);
 
   return (
     <Router>
@@ -140,9 +130,20 @@ const App = () => {
           {routes.map(({ path, Component, props = {}, Fallback = Loading }) => (
             <Route path={path} key={path}>
               <Suspense fallback={<Fallback />}>
-                <ErrorBoundary>
-                  <Component user={bootstrapData.user} {...props} />
-                </ErrorBoundary>
+                <Layout.Content
+                  css={css`
+                    display: flex;
+                    flex-direction: column;
+                  `}
+                >
+                  <ErrorBoundary
+                    css={css`
+                      margin: 16px;
+                    `}
+                  >
+                    <Component user={bootstrapData.user} {...props} />
+                  </ErrorBoundary>
+                </Layout.Content>
               </Suspense>
             </Route>
           ))}

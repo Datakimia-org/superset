@@ -21,9 +21,19 @@ import { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NativeFilterScope, styled, t } from '@superset-ui/core';
 import { Radio } from 'src/components/Radio';
 import { AntdForm, Typography } from 'src/components';
-import { ScopingType } from './types';
+import { DASHBOARD_ROOT_ID } from 'src/dashboard/util/constants';
 import ScopingTree from './ScopingTree';
-import { getDefaultScopeValue, isScopingAll } from './utils';
+import { getDefaultScopeValue } from './utils';
+
+enum ScopingType {
+  All,
+  Specific,
+}
+
+const isScopingAll = (scope: NativeFilterScope, chartId?: number) =>
+  !scope ||
+  (scope.rootPath[0] === DASHBOARD_ROOT_ID &&
+    !scope.excluded.filter(item => item !== chartId).length);
 
 type FilterScopeProps = {
   pathToFormValue?: string[];

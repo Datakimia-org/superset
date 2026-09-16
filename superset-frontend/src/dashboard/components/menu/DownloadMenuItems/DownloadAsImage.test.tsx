@@ -16,9 +16,9 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import userEvent from '@testing-library/user-event';
 import { SyntheticEvent } from 'react';
 import { render, screen, waitFor } from 'spec/helpers/testing-library';
+import userEvent from '@testing-library/user-event';
 import { Menu } from 'src/components/Menu';
 import downloadAsImage from 'src/utils/downloadAsImage';
 import DownloadAsImage from './DownloadAsImage';
@@ -56,15 +56,15 @@ const renderComponent = () => {
 test('Should call download image on click', async () => {
   renderComponent();
   await waitFor(() => {
-    expect(downloadAsImage).toBeCalledTimes(0);
-    expect(mockAddDangerToast).toBeCalledTimes(0);
+    expect(downloadAsImage).toHaveBeenCalledTimes(0);
+    expect(mockAddDangerToast).toHaveBeenCalledTimes(0);
   });
 
   userEvent.click(screen.getByRole('button', { name: 'Download as Image' }));
 
   await waitFor(() => {
-    expect(downloadAsImage).toBeCalledTimes(1);
-    expect(mockAddDangerToast).toBeCalledTimes(0);
+    expect(downloadAsImage).toHaveBeenCalledTimes(1);
+    expect(mockAddDangerToast).toHaveBeenCalledTimes(0);
   });
 });
 
