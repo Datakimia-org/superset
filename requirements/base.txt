@@ -17,6 +17,8 @@ attrs==24.2.0
     #   outcome
     #   requests-cache
     #   trio
+authlib==1.6.12
+    # via -r requirements/base.in
 babel==2.16.0
     # via flask-babel
 backoff==2.2.1
@@ -80,6 +82,7 @@ croniter==5.0.1
 cryptography==43.0.3
     # via
     #   apache-superset (pyproject.toml)
+    #   authlib
     #   paramiko
     #   pyopenssl
 defusedxml==0.7.1
@@ -144,11 +147,11 @@ geopy==2.4.1
     # via apache-superset (pyproject.toml)
 google-auth==2.36.0
     # via shillelagh
-greenlet==3.0.3
+greenlet==3.1.1
     # via
     #   apache-superset (pyproject.toml)
+    #   playwright
     #   shillelagh
-    #   sqlalchemy
 gunicorn==23.0.0
     # via apache-superset (pyproject.toml)
 h11==0.16.0
@@ -224,6 +227,7 @@ numpy==1.26.4
     #   bottleneck
     #   numexpr
     #   pandas
+    #   pyarrow
 odfpy==1.4.1
     # via pandas
 openpyxl==3.1.5
@@ -254,6 +258,8 @@ pgsanity==0.2.9
     # via apache-superset (pyproject.toml)
 platformdirs==3.8.1
     # via requests-cache
+playwright==1.63.0
+    # via -r requirements/base.in
 ply==3.11
     # via jsonpath-ng
 polyline==2.0.2
@@ -272,6 +278,8 @@ pyasn1-modules==0.4.1
     # via google-auth
 pycparser==2.22
     # via cffi
+pyee==13.0.1
+    # via playwright
 pygments==2.18.0
     # via rich
 pyjwt==2.10.1
@@ -378,6 +386,7 @@ typing-extensions==4.12.2
     #   alembic
     #   flask-limiter
     #   limits
+    #   pyee
     #   selenium
     #   shillelagh
 tzdata==2024.2
