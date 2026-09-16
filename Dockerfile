@@ -245,6 +245,9 @@ RUN /app/docker/apt-install.sh \
 
 # Copy development requirements and install them
 COPY requirements/*.txt requirements/
+# Install base requirements first (dev target skips base.txt but fork deps like authlib live there)
+RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
+    /app/docker/pip-install.sh --requires-build-essential -r requirements/base.txt
 # Install Python dependencies using docker/pip-install.sh
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
     /app/docker/pip-install.sh --requires-build-essential -r requirements/development.txt
