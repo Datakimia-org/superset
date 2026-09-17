@@ -29,6 +29,13 @@ billiard==4.2.1
     # via celery
 blinker==1.9.0
     # via flask
+boto3==1.43.96
+    # via pyathena
+botocore==1.43.96
+    # via
+    #   boto3
+    #   pyathena
+    #   s3transfer
 bottleneck==1.4.2
     # via apache-superset (pyproject.toml)
 brotli==1.1.0
@@ -141,6 +148,8 @@ flask-wtf==1.2.2
     # via
     #   apache-superset (pyproject.toml)
     #   flask-appbuilder
+fsspec==2026.7.0
+    # via pyathena
 geographiclib==2.0
     # via geopy
 geopy==2.4.1
@@ -181,6 +190,11 @@ jinja2==3.1.4
     # via
     #   flask
     #   flask-babel
+jmespath==1.1.0
+    # via
+    #   -r requirements/base.in
+    #   boto3
+    #   botocore
 jsonpath-ng==1.7.0
     # via apache-superset (pyproject.toml)
 jsonschema==4.17.3
@@ -247,7 +261,9 @@ packaging==24.2
     #   marshmallow-sqlalchemy
     #   shillelagh
 pandas==2.0.3
-    # via apache-superset (pyproject.toml)
+    # via
+    #   apache-superset (pyproject.toml)
+    #   pyathena
 paramiko==3.5.0
     # via
     #   apache-superset (pyproject.toml)
@@ -276,6 +292,8 @@ pyasn1==0.6.1
     #   rsa
 pyasn1-modules==0.4.1
     # via google-auth
+pyathena==2.25.2
+    # via -r requirements/base.in
 pycparser==2.22
     # via cffi
 pyee==13.0.1
@@ -300,6 +318,7 @@ pysocks==1.7.1
 python-dateutil==2.9.0.post0
     # via
     #   apache-superset (pyproject.toml)
+    #   botocore
     #   celery
     #   croniter
     #   flask-appbuilder
@@ -333,6 +352,8 @@ rich==13.9.4
     # via flask-limiter
 rsa==4.9
     # via google-auth
+s3transfer==0.19.2
+    # via boto3
 selenium==4.27.1
     # via apache-superset (pyproject.toml)
 shillelagh==1.2.18
@@ -374,6 +395,8 @@ sshtunnel==0.4.0
     # via apache-superset (pyproject.toml)
 tabulate==0.8.10
     # via apache-superset (pyproject.toml)
+tenacity==9.1.4
+    # via pyathena
 trio==0.28.0
     # via
     #   selenium
@@ -399,6 +422,7 @@ url-normalize==1.4.3
 urllib3==1.26.18
     # via
     #   -r requirements/base.in
+    #   botocore
     #   requests
     #   requests-cache
     #   selenium
