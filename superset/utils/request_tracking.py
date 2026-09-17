@@ -60,8 +60,17 @@ class RequestTrackingMiddleware:
         
         @self.app.after_request
         def add_request_id_header(response: flask.Response) -> flask.Response:
-            """Add request ID to response headers."""
-            response.headers["X-Request-ID"] = flask.g.request_id
+            """Add request ID to response headers.
+
+            Celery/Playwright machine_auth calls process_response() inside
+            test_request_context(), which does not run before_request, so
+            flask.g.request_id may be missing.
+            """
+            request_id = getattr(flask.g, "request_id", None)
+            if not request_id:
+                request_id = str(uuid.uuid4())
+                flask.g.request_id = request_id
+            response.headers["X-Request-ID"] = request_id
             return response
         
         @self.app.after_request
