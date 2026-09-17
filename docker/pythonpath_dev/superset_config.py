@@ -73,7 +73,9 @@ WEBDRIVER_BASEURL_USER_FRIENDLY = os.getenv(
 if WEBDRIVER_BASEURL_USER_FRIENDLY and not WEBDRIVER_BASEURL_USER_FRIENDLY.endswith("/"):
     WEBDRIVER_BASEURL_USER_FRIENDLY += "/"
 
-WEBDRIVER_TYPE = os.getenv("WEBDRIVER_TYPE", "firefox")
+# v5 image has Playwright Chromium, not Firefox. Playwright ignores this for
+# which browser it launches; chrome selects K8s-safe WEBDRIVER_OPTION_ARGS.
+WEBDRIVER_TYPE = os.getenv("WEBDRIVER_TYPE", "chrome")
 WEBDRIVER_OPTION_ARGS = (
     ["--headless"]
     if WEBDRIVER_TYPE == "firefox"
@@ -242,8 +244,9 @@ FEATURE_FLAGS = {
     "ENABLE_JAVASCRIPT_CONTROLS":True,
     "HTML_SANITIZATION": False,
     "TALISMAN_ENABLED": False,
+    # ENABLE_PLAYWRIGHT is unused; this is the Apache 5 screenshot switch.
     "PLAYWRIGHT_REPORTS_AND_THUMBNAILS": os.getenv(
-        "PLAYWRIGHT_REPORTS_AND_THUMBNAILS", "false"
+        "PLAYWRIGHT_REPORTS_AND_THUMBNAILS", "true"
     ).lower()
     == "true",
 }
