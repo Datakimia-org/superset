@@ -136,6 +136,50 @@ class WebDriverPlaywright(WebDriverProxy):
 
         return error_messages
 
+    def _screenshot_dashboard(self, page: Page) -> bytes:
+        from io import BytesIO
+
+        try:
+            from PIL import Image
+        except ModuleNotFoundError:
+            return page.locator(".standalone").screenshot()
+
+        width, height = self._window
+        layout = page.evaluate(
+            """(thumbH) => [...document.querySelectorAll('.chart-container')].map(
+                (el, i) => {
+                    const r = el.getBoundingClientRect();
+                    const y = r.top + window.scrollY;
+                    return {
+                        i,
+                        x: r.left + window.scrollX,
+                        y,
+                        inThumb: y < thumbH,
+                    };
+                }
+            )""",
+            height,
+        )
+        if not isinstance(layout, list) or not layout:
+            return page.locator(".standalone").screenshot()
+
+        canvas = Image.new("RGB", (width, height), (247, 247, 247))
+        loc = page.locator(".chart-container")
+        pasted = False
+        for item in layout:
+            if not item.get("inThumb"):
+                continue
+            el = loc.nth(item["i"])
+            el.scroll_into_view_if_needed()
+            tile = Image.open(BytesIO(el.screenshot())).convert("RGB")
+            canvas.paste(tile, (int(item["x"]), int(item["y"])))
+            pasted = True
+        if not pasted:
+            return page.locator(".standalone").screenshot()
+        buf = BytesIO()
+        canvas.save(buf, format="PNG")
+        return buf.getvalue()
+
     def get_screenshot(  # pylint: disable=too-many-locals, too-many-statements  # noqa: C901
         self, url: str, element_name: str, user: User
     ) -> bytes | None:
@@ -191,6 +235,9 @@ class WebDriverPlaywright(WebDriverProxy):
                     # chart containers didn't render
                     logger.debug("Wait for chart containers to draw at url: %s", url)
                     slice_container_locator = page.locator(".chart-container")
+                    slice_container_locator.first.wait_for(
+                        timeout=self._screenshot_locate_wait * 1000
+                    )
                     for slice_container_elem in slice_container_locator.all():
                         slice_container_elem.wait_for()
                 except PlaywrightTimeout:
@@ -204,8 +251,25 @@ class WebDriverPlaywright(WebDriverProxy):
                     logger.debug(
                         "Wait for loading element of charts to be gone at url: %s", url
                     )
-                    for loading_element in page.locator(".loading").all():
-                        loading_element.wait_for(state="detached")
+                    page.wait_for_function(
+                        """() => {
+                            const containers = Array.from(
+                                document.querySelectorAll('.chart-container')
+                            );
+                            if (containers.length === 0) {
+                                return false;
+                            }
+                            if (document.querySelectorAll('.loading').length > 0) {
+                                return false;
+                            }
+                            return containers.every((el) =>
+                                el.querySelector(
+                                    '.slice_container, [role="alert"], .missing-chart-container, .ant-empty'
+                                )
+                            );
+                        }""",
+                        timeout=self._screenshot_load_wait * 1000,
+                    )
                 except PlaywrightTimeout:
                     logger.exception(
                         "Timed out waiting for charts to load at url %s", url
@@ -233,7 +297,10 @@ class WebDriverPlaywright(WebDriverProxy):
                             url,
                             unexpected_errors,
                         )
-                img = element.screenshot()
+                if element_name == "standalone":
+                    img = self._screenshot_dashboard(page)
+                else:
+                    img = element.screenshot()
             except PlaywrightTimeout:
                 # raise again for the finally block, but handled above
                 pass
