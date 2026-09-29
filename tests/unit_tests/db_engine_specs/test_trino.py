@@ -37,14 +37,14 @@ from trino.sqlalchemy import datatype
 from trino.sqlalchemy.dialect import TrinoDialect
 
 import superset.config
-from superset.constants import QUERY_CANCEL_KEY, QUERY_EARLY_CANCEL_KEY, USER_AGENT
+from superset.constants import QUERY_CANCEL_KEY, QUERY_EARLY_CANCEL_KEY
 from superset.db_engine_specs.exceptions import (
     SupersetDBAPIConnectionError,
     SupersetDBAPIDatabaseError,
     SupersetDBAPIOperationalError,
     SupersetDBAPIProgrammingError,
 )
-from superset.sql_parse import Table
+from superset.sql.parse import Table
 from superset.superset_typing import (
     OAuth2ClientConfig,
     ResultSetColumnType,
@@ -81,7 +81,7 @@ def _assert_columns_equal(actual_cols, expected_cols) -> None:
 @pytest.mark.parametrize(
     "extra,expected",
     [
-        ({}, {"engine_params": {"connect_args": {"source": USER_AGENT}}}),
+        ({}, {"engine_params": {"connect_args": {"source": "Apache Superset"}}}),
         (
             {
                 "first": 1,
@@ -110,7 +110,7 @@ def test_get_extra_params(extra: dict[str, Any], expected: dict[str, Any]) -> No
     assert TrinoEngineSpec.get_extra_params(database) == expected
 
 
-@patch("superset.utils.core.create_ssl_cert_file")
+@patch("superset.db_engine_specs.trino.create_ssl_cert_file")
 def test_get_extra_params_with_server_cert(mock_create_ssl_cert_file: Mock) -> None:
     from superset.db_engine_specs.trino import TrinoEngineSpec
 
@@ -118,6 +118,7 @@ def test_get_extra_params_with_server_cert(mock_create_ssl_cert_file: Mock) -> N
 
     database.extra = json.dumps({})
     database.server_cert = "TEST_CERT"
+    database.db_engine_spec = TrinoEngineSpec
     mock_create_ssl_cert_file.return_value = "/path/to/tls.crt"
     extra = TrinoEngineSpec.get_extra_params(database)
 
@@ -472,33 +473,6 @@ def test_execute_with_cursor_app_context(app, mocker: MockerFixture):
                     sql="SELECT 1 FROM foo",
                     query=mock_query,
                 )
-
-
-def test_execute_with_cursor_app_context(app, mocker: MockerFixture):
-    """Test that `execute_with_cursor` still contains the current app context"""
-    from superset.db_engine_specs.trino import TrinoEngineSpec
-
-    mock_cursor = mocker.MagicMock()
-    mock_cursor.query_id = None
-
-    mock_query = mocker.MagicMock()
-    g.some_value = "some_value"
-
-    def _mock_execute(*args, **kwargs):
-        assert has_app_context()
-        assert g.some_value == "some_value"
-
-    with patch.object(TrinoEngineSpec, "execute", side_effect=_mock_execute):
-        with patch.dict(
-            "superset.config.DISALLOWED_SQL_FUNCTIONS",
-            {},
-            clear=True,
-        ):
-            TrinoEngineSpec.execute_with_cursor(
-                cursor=mock_cursor,
-                sql="SELECT 1 FROM foo",
-                query=mock_query,
-            )
 
 
 def test_get_columns(mocker: MockerFixture):

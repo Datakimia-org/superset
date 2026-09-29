@@ -59,7 +59,7 @@ RUN mkdir -p /app/superset/static/assets \
 # NOTE: we mount packages and plugins as they are referenced in package.json as workspaces
 # ideally we'd COPY only their package.json. Here npm ci will be cached as long
 # as the full content of these folders don't change, yielding a decent cache reuse rate.
-# Note that's it's not possible selectively COPY of mount using blobs.
+# Note that it's not possible to selectively COPY or mount using blobs.
 RUN --mount=type=bind,source=./superset-frontend/package.json,target=./package.json \
     --mount=type=bind,source=./superset-frontend/package-lock.json,target=./package-lock.json \
     --mount=type=cache,target=/root/.cache \
@@ -74,7 +74,7 @@ RUN --mount=type=bind,source=./superset-frontend/package.json,target=./package.j
 COPY superset-frontend /app/superset-frontend
 
 ######################################################################
-# superset-node used for compile frontend assets
+# superset-node is used for compiling frontend assets
 ######################################################################
 FROM superset-node-ci AS superset-node
 
@@ -90,7 +90,7 @@ RUN --mount=type=cache,target=/root/.npm \
 # Copy translation files
 COPY superset/translations /app/superset/translations
 
-# Build the frontend if not in dev mode
+# Build translations if enabled, then cleanup localization files
 RUN if [ "$BUILD_TRANSLATIONS" = "true" ]; then \
         npm run build-translation; \
     fi; \
@@ -212,7 +212,7 @@ COPY --from=python-translation-compiler /app/translations_mo superset/translatio
 # Copy pythonpath_dev files to the image (can be overwritten by volume mounts)
 COPY --chown=superset:superset docker/pythonpath_dev /app/config/
 
-HEALTHCHECK CMD curl -f "http://localhost:${SUPERSET_PORT}/health"
+HEALTHCHECK CMD /app/docker/docker-healthcheck.sh
 CMD ["/app/docker/entrypoints/run-server.sh"]
 EXPOSE ${SUPERSET_PORT}
 
@@ -227,7 +227,7 @@ RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
     /app/docker/pip-install.sh --requires-build-essential -r requirements/base.txt
 # Install the superset package
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
-    uv pip install .
+    uv pip install -e .
 RUN python -m compileall /app/superset
 
 USER superset
@@ -253,7 +253,7 @@ RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
     /app/docker/pip-install.sh --requires-build-essential -r requirements/development.txt
 # Install the superset package
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
-    uv pip install .
+    uv pip install -e .
 
 RUN uv pip install .[postgres]
 RUN python -m compileall /app/superset

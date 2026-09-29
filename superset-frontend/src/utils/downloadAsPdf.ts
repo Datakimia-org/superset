@@ -62,7 +62,7 @@ export default function downloadAsPdf(
       image: { type: 'jpeg', quality: 1 },
       html2canvas: {
         scale: 2,
-        backgroundColor: supersetTheme.colors.grayscale.light4,
+        backgroundColor: supersetTheme.colorBgLayout,
         useCORS: true,
         allowTaint: true,
         logging: false,

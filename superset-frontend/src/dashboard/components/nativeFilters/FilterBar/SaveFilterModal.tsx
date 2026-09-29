@@ -18,9 +18,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { css, SupersetTheme, t } from '@superset-ui/core';
-import Modal from 'src/components/Modal';
-import Button from 'src/components/Button';
-import { Input } from 'src/components/Input';
+import { Button, Input, Modal } from '@superset-ui/core/components';
 import { FilterInfo } from './filterSetsStorage';
 
 interface SaveFilterModalProps {
@@ -43,50 +41,50 @@ const formatFilterValue = (value: any): string => {
 const bodyStyle = (theme: SupersetTheme) => css`
   display: flex;
   flex-direction: column;
-  gap: ${theme.gridUnit * 4}px;
+  gap: ${theme.sizeUnit * 4}px;
 `;
 
 const fieldStyle = (theme: SupersetTheme) => css`
   display: flex;
   flex-direction: column;
-  gap: ${theme.gridUnit}px;
+  gap: ${theme.sizeUnit}px;
 
   label {
-    font-size: ${theme.typography.sizes.s}px;
-    font-weight: ${theme.typography.weights.bold};
-    color: ${theme.colors.grayscale.dark1};
+    font-size: ${theme.fontSizeSM}px;
+    font-weight: ${theme.fontWeightStrong};
+    color: ${theme.colorText};
   }
 `;
 
 const filtersSummaryStyle = (theme: SupersetTheme) => css`
-  background: ${theme.colors.grayscale.light4};
+  background: ${theme.colorFillSecondary};
   border-radius: ${theme.borderRadius}px;
-  padding: ${theme.gridUnit * 3}px;
+  padding: ${theme.sizeUnit * 3}px;
   display: flex;
   flex-direction: column;
-  gap: ${theme.gridUnit * 2}px;
+  gap: ${theme.sizeUnit * 2}px;
 
   .summary-title {
-    font-size: ${theme.typography.sizes.s}px;
-    font-weight: ${theme.typography.weights.bold};
-    color: ${theme.colors.grayscale.dark1};
-    margin-bottom: ${theme.gridUnit}px;
+    font-size: ${theme.fontSizeSM}px;
+    font-weight: ${theme.fontWeightStrong};
+    color: ${theme.colorText};
+    margin-bottom: ${theme.sizeUnit}px;
   }
 `;
 
 const filterRowStyle = (theme: SupersetTheme) => css`
-  font-size: ${theme.typography.sizes.s}px;
+  font-size: ${theme.fontSizeSM}px;
   display: flex;
-  gap: ${theme.gridUnit}px;
+  gap: ${theme.sizeUnit}px;
   align-items: baseline;
 
   .filter-name {
-    font-weight: ${theme.typography.weights.bold};
-    color: ${theme.colors.grayscale.dark2};
+    font-weight: ${theme.fontWeightStrong};
+    color: ${theme.colorTextHeading};
   }
 
   .filter-value {
-    color: ${theme.colors.grayscale.base};
+    color: ${theme.colorTextSecondary};
     font-style: italic;
   }
 `;

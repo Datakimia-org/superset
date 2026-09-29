@@ -8,12 +8,14 @@ import {
   useTheme,
   useCSSTextTruncation,
 } from '@superset-ui/core';
-import { RangePicker } from 'src/components/DatePicker';
-import Button from 'src/components/Button';
+import {
+  Button,
+  RangePicker,
+  Tooltip,
+} from '@superset-ui/core/components';
 import ControlPopover from 'src/explore/components/controls/ControlPopover/ControlPopover';
 import { DateLabel } from 'src/explore/components/controls/DateFilterControl/components';
-import { Tooltip } from 'src/components/Tooltip';
-import Icons from 'src/components/Icons';
+import { Icons } from '@superset-ui/core/components/Icons';
 import {
   CALENDAR_DATE_PICKER_PRESETS,
   getCalendarPresetLabel,
@@ -48,7 +50,7 @@ const PopoverContainer = styled.div`
     display: flex;
     flex-direction: column;
     gap: 8px;
-    border-right: 1px solid ${({ theme }) => theme.colors.grayscale.light2};
+    border-right: 1px solid ${({ theme }) => theme.colorBorderSecondary};
     padding-right: 16px;
     min-width: 150px;
   }
@@ -63,7 +65,7 @@ const PopoverContainer = styled.div`
   .footer {
     text-align: right;
     padding-top: 16px;
-    border-top: 1px solid ${({ theme }) => theme.colors.grayscale.light2};
+    border-top: 1px solid ${({ theme }) => theme.colorBorderSecondary};
   }
 
   .preset-btn {
@@ -72,18 +74,18 @@ const PopoverContainer = styled.div`
     border: none;
     cursor: pointer;
     padding: 6px 12px;
-    border-radius: 4px;
-    color: ${({ theme }) => theme.colors.grayscale.dark1};
-    font-size: ${({ theme }) => theme.typography.sizes.s}px;
+    border-radius: ${({ theme }) => theme.borderRadius}px;
+    color: ${({ theme }) => theme.colorText};
+    font-size: ${({ theme }) => theme.fontSizeSM}px;
     transition: background 0.2s;
 
     &:hover {
-      background: ${({ theme }) => theme.colors.grayscale.light4};
+      background: ${({ theme }) => theme.colorFillSecondary};
     }
     &.active {
-      background: ${({ theme }) => theme.colors.primary.light4};
-      color: ${({ theme }) => theme.colors.primary.dark1};
-      font-weight: ${({ theme }) => theme.typography.weights.bold};
+      background: ${({ theme }) => theme.colorPrimaryBg};
+      color: ${({ theme }) => theme.colorPrimary};
+      font-weight: ${({ theme }) => theme.fontWeightStrong};
     }
   }
 `;
@@ -200,7 +202,7 @@ export default function CalendarDatePicker({
             style={{
               marginTop: 16,
               fontSize: '12px',
-              color: theme.colors.grayscale.base,
+              color: theme.colorTextSecondary,
             }}
           >
             {t('Selected')}:{' '}
@@ -242,15 +244,15 @@ export default function CalendarDatePicker({
         <span
           style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center' }}
         >
-          <Icons.EditAlt
-            iconColor={theme.colors.grayscale.base}
+          <Icons.EditOutlined
+            iconColor={theme.colorTextSecondary}
             style={{ marginRight: 8 }}
           />
           {t('Edit time range')}
         </span>
       }
-      visible={show}
-      onVisibleChange={visible => (visible ? handleOpen() : handleClose())}
+      open={show}
+      onOpenChange={open => (open ? handleOpen() : handleClose())}
       getPopupContainer={triggerNode =>
         isOverflowingFilterBar
           ? (triggerNode.parentNode as HTMLElement)

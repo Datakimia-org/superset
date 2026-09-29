@@ -34,6 +34,8 @@ export const useFilterControlFactory = (
   dataMaskSelected: DataMaskStateWithId,
   onFilterSelectionChange: (filter: Filter, dataMask: DataMask) => void,
   filterPredicate?: (filter: Filter | Divider) => boolean,
+  clearAllTriggers?: Record<string, boolean>,
+  onClearAllComplete?: (filterId: string) => void,
 ) => {
   const filters = useFilters();
   const filterValues = useMemo(() => Object.values(filters), [filters]);
@@ -70,10 +72,18 @@ export const useFilterControlFactory = (
           inView={false}
           orientation={filterBarOrientation}
           overflow={overflow}
+          clearAllTrigger={clearAllTriggers?.[filter.id]}
+          onClearAllComplete={() => onClearAllComplete?.(filter.id)}
         />
       );
     },
-    [filtersWithValues, dataMaskSelected, onFilterSelectionChange],
+    [
+      filtersWithValues,
+      dataMaskSelected,
+      onFilterSelectionChange,
+      clearAllTriggers,
+      onClearAllComplete,
+    ],
   );
 
   return { filterControlFactory, filtersWithValues };

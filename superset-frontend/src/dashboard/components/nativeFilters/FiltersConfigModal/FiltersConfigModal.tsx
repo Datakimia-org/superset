@@ -16,28 +16,29 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+import { memo, useEffect, useCallback, useMemo, useState, useRef } from 'react';
+import { uniq, isEqual, sortBy, debounce, isEmpty } from 'lodash';
 import {
-  Divider,
   Filter,
   NativeFilterType,
-  SLOW_DEBOUNCE,
-  css,
+  Divider,
   styled,
   t,
+  css,
   useTheme,
 } from '@superset-ui/core';
-import { debounce, isEmpty, isEqual, sortBy, uniq } from 'lodash';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch } from 'react-redux';
-import { AntdForm } from 'src/components';
-import ErrorBoundary from 'src/components/ErrorBoundary';
-import Icons from 'src/components/Icons';
-import { StyledModal } from 'src/components/Modal';
+import {
+  Constants,
+  Form,
+  Icons,
+  StyledModal,
+} from '@superset-ui/core/components';
+import { ErrorBoundary } from 'src/components';
+import { testWithId } from 'src/utils/testUtils';
 import { updateCascadeParentIds } from 'src/dashboard/actions/nativeFilters';
 import useEffectEvent from 'src/hooks/useEffectEvent';
-import { testWithId } from 'src/utils/testUtils';
 import { useFilterConfigMap, useFilterConfiguration } from '../state';
-import DividerConfigForm from './DividerConfigForm';
 import FilterConfigurePane from './FilterConfigurePane';
 import FiltersConfigForm, {
   FilterPanels,
@@ -51,14 +52,15 @@ import {
   SaveFilterChangesType,
 } from './types';
 import {
-  NATIVE_FILTER_DIVIDER_PREFIX,
-  createHandleRemoveItem,
   createHandleSave,
+  createHandleRemoveItem,
   generateFilterId,
   getFilterIds,
-  hasCircularDependency,
   validateForm,
+  NATIVE_FILTER_DIVIDER_PREFIX,
+  hasCircularDependency,
 } from './utils';
+import DividerConfigForm from './DividerConfigForm';
 
 const MODAL_MARGIN = 16;
 const MIN_WIDTH = 880;
@@ -72,8 +74,9 @@ const StyledModalWrapper = styled(StyledModal)<{ expanded: boolean }>`
     min-width: auto;
   }
 
-  .antd5-modal-body {
+  .ant-modal-body {
     padding: 0px;
+    overflow: auto;
   }
 
   ${({ expanded }) =>
@@ -81,10 +84,10 @@ const StyledModalWrapper = styled(StyledModal)<{ expanded: boolean }>`
     css`
       height: 100%;
 
-      .antd5-modal-body {
+      .ant-modal-body {
         flex: 1 1 auto;
       }
-      .antd5-modal-content {
+      .ant-modal-content {
         height: 100%;
       }
     `}
@@ -96,17 +99,17 @@ export const StyledModalBody = styled.div<{ expanded: boolean }>`
   flex-direction: row;
   flex: 1;
   .filters-list {
-    width: ${({ theme }) => theme.gridUnit * 50}px;
+    width: ${({ theme }) => theme.sizeUnit * 50}px;
     overflow: auto;
   }
 `;
 
-export const StyledForm = styled(AntdForm)`
+export const StyledForm = styled(Form)`
   width: 100%;
 `;
 
 export const StyledExpandButtonWrapper = styled.div`
-  margin-left: ${({ theme }) => theme.gridUnit * 4}px;
+  margin-left: ${({ theme }) => theme.sizeUnit * 4}px;
 `;
 
 export const FILTERS_CONFIG_MODAL_TEST_ID = 'filters-config-modal';
@@ -156,7 +159,7 @@ function FiltersConfigModal({
   const dispatch = useDispatch();
   const theme = useTheme();
 
-  const [form] = AntdForm.useForm<NativeFiltersForm>();
+  const [form] = Form.useForm<NativeFiltersForm>();
 
   const configFormRef = useRef<any>();
 
@@ -358,16 +361,49 @@ function FiltersConfigModal({
   );
 
   const getAvailableFilters = useCallback(
-    (filterId: string) =>
-      filterIds
+    (filterId: string) => {
+      // Build current dependency map
+      const dependencyMap = new Map<string, string[]>();
+      const filters = form.getFieldValue('filters');
+      if (filters) {
+        Object.keys(filters).forEach(key => {
+          const formItem = filters[key];
+          const configItem = filterConfigMap[key];
+          let array: string[] = [];
+          if (formItem && 'dependencies' in formItem) {
+            array = [...formItem.dependencies];
+          } else if (configItem?.cascadeParentIds) {
+            array = [...configItem.cascadeParentIds];
+          }
+          dependencyMap.set(key, array);
+        });
+      }
+
+      return filterIds
         .filter(id => id !== filterId)
         .filter(id => canBeUsedAsDependency(id))
+        .filter(id => {
+          // Check if adding this dependency would create a circular dependency
+          const currentDependencies = dependencyMap.get(filterId) || [];
+          const testDependencies = [...currentDependencies, id];
+          const testMap = new Map(dependencyMap);
+          testMap.set(filterId, testDependencies);
+          return !hasCircularDependency(testMap, filterId);
+        })
         .map(id => ({
           label: getFilterTitle(id),
           value: id,
           type: filterConfigMap[id]?.filterType,
-        })),
-    [canBeUsedAsDependency, filterConfigMap, filterIds, getFilterTitle],
+        }));
+    },
+    [
+      canBeUsedAsDependency,
+      filterConfigMap,
+      filterIds,
+      getFilterTitle,
+      form,
+      form.getFieldValue('filters'),
+    ],
   );
 
   /**
@@ -554,7 +590,11 @@ function FiltersConfigModal({
       .forEach(filterId => {
         const result = hasCircularDependency(dependencyMap, filterId);
         const field = {
-          name: ['filters', filterId, 'dependencies'],
+          name: ['filters', filterId, 'dependencies'] as [
+            'filters',
+            string,
+            'dependencies',
+          ],
           errors: result ? [t('Cyclic dependency detected')] : [],
         };
         form.setFields([field]);
@@ -615,7 +655,7 @@ function FiltersConfigModal({
         }
         setSaveAlertVisible(false);
         handleErroredFilters();
-      }, SLOW_DEBOUNCE),
+      }, Constants.SLOW_DEBOUNCE),
     [handleErroredFilters],
   );
 
@@ -709,7 +749,7 @@ function FiltersConfigModal({
       maskClosable={false}
       title={t('Add and edit filters')}
       expanded={expanded}
-      destroyOnClose
+      destroyOnHidden
       onCancel={handleCancel}
       onOk={handleSave}
       centered
@@ -733,7 +773,7 @@ function FiltersConfigModal({
           <StyledExpandButtonWrapper>
             <ToggleIcon
               iconSize="l"
-              iconColor={theme.colors.grayscale.dark2}
+              iconColor={theme.colorIcon}
               onClick={toggleExpand}
             />
           </StyledExpandButtonWrapper>

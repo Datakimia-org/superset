@@ -29,7 +29,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChartsState, RootState } from 'src/dashboard/types';
 import { NATIVE_FILTER_PREFIX } from '../FiltersConfigModal/utils';
 
-export const useFilters = () => {
+export const useFilters = (): Filters => {
   const preselectedNativeFilters = useSelector<any, Filters>(
     state => state.dashboardState?.preselectNativeFilters,
   );

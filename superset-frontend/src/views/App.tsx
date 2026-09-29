@@ -26,12 +26,11 @@ import {
 } from 'react-router-dom';
 import { bindActionCreators } from 'redux';
 import { css } from '@superset-ui/core';
-import { GlobalStyles } from 'src/GlobalStyles';
-import ErrorBoundary from 'src/components/ErrorBoundary';
-import Loading from 'src/components/Loading';
-import { Layout } from 'src/components';
+import { Layout, Loading } from '@superset-ui/core/components';
+import { setupAGGridModules } from '@superset-ui/core/components/ThemedAgGridReact';
+import { ErrorBoundary } from 'src/components';
 import Menu from 'src/features/home/Menu';
-import getBootstrapData from 'src/utils/getBootstrapData';
+import getBootstrapData, { applicationRoot } from 'src/utils/getBootstrapData';
 import ToastContainer from 'src/components/MessageToasts/ToastContainer';
 import setupApp from 'src/setup/setupApp';
 import setupPlugins from 'src/setup/setupPlugins';
@@ -50,6 +49,7 @@ import { ScrollToTop } from './ScrollToTop';
 setupApp();
 setupPlugins();
 setupExtensions();
+setupAGGridModules();
 
 const bootstrapData = getBootstrapData();
 
@@ -76,15 +76,14 @@ const LocationPathnameLogger = () => {
 
 function hasOnlyDefaultRole(data: BootstrapData) {
   if (data.user && isUserWithPermissionsAndRoles(data.user)) {
-    const userRoles = data.user.roles;
-    const roleNames = Object.keys(userRoles);
+    const roleNames = Object.keys(data.user.roles);
     return roleNames.length === 1 && roleNames[0] === 'Default';
   }
   return false;
 }
 
 const closeSession = async () => {
-  await fetch('/logout/', {
+  await fetch(`${applicationRoot()}/logout/`, {
     method: 'GET',
     credentials: 'include',
   });
@@ -92,36 +91,37 @@ const closeSession = async () => {
 
 const App = () => {
   useEffect(() => {
-    const handleWindowOpen = async () => {
+    const notifyOpener = async () => {
+      if (!window.opener) {
+        return;
+      }
+
       try {
-        if (window.opener) {
-          if (hasOnlyDefaultRole(bootstrapData)) {
-            window.opener.postMessage(
-              {
-                type: 'OAUTH2_SUCCESS',
-                data: {},
-              },
-              '*',
-            );
-          } else {
-            await closeSession();
-          }
+        if (hasOnlyDefaultRole(bootstrapData)) {
+          window.opener.postMessage(
+            {
+              type: 'OAUTH2_SUCCESS',
+              data: {},
+            },
+            '*',
+          );
+        } else {
+          await closeSession();
         }
       } catch (error) {
         // eslint-disable-next-line no-console
-        console.error('Error handling guest role:', error);
+        console.error('Error handling OAuth popup:', error);
       }
     };
 
-    handleWindowOpen();
+    notifyOpener();
   }, []);
 
   return (
-    <Router>
+    <Router basename={applicationRoot()}>
       <ScrollToTop />
       <LocationPathnameLogger />
       <RootContextProviders>
-        <GlobalStyles />
         <Menu
           data={bootstrapData.common.menu_data}
           isFrontendRoute={isFrontendRoute}
@@ -130,20 +130,22 @@ const App = () => {
           {routes.map(({ path, Component, props = {}, Fallback = Loading }) => (
             <Route path={path} key={path}>
               <Suspense fallback={<Fallback />}>
-                <Layout.Content
-                  css={css`
-                    display: flex;
-                    flex-direction: column;
-                  `}
-                >
-                  <ErrorBoundary
+                <Layout>
+                  <Layout.Content
                     css={css`
-                      margin: 16px;
+                      display: flex;
+                      flex-direction: column;
                     `}
                   >
-                    <Component user={bootstrapData.user} {...props} />
-                  </ErrorBoundary>
-                </Layout.Content>
+                    <ErrorBoundary
+                      css={css`
+                        margin: 16px;
+                      `}
+                    >
+                      <Component user={bootstrapData.user} {...props} />
+                    </ErrorBoundary>
+                  </Layout.Content>
+                </Layout>
               </Suspense>
             </Route>
           ))}

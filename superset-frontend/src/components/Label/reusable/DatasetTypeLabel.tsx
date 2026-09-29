@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import Icons from 'src/components/Icons';
+import { Icons } from '@superset-ui/core/components/Icons';
 import Label from 'src/components/Label';
 import { t } from '@superset-ui/core';
 
@@ -32,7 +32,7 @@ const DatasetTypeLabel: React.FC<DatasetTypeLabelProps> = ({ datasetType }) => {
     datasetType === 'physical' ? t('Physical') : t('Virtual');
   const icon =
     datasetType === 'physical' ? (
-      <Icons.Table iconSize={SIZE} />
+      <Icons.TableOutlined iconSize={SIZE} />
     ) : (
       <Icons.ConsoleSqlOutlined iconSize={SIZE} />
     );

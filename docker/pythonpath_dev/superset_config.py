@@ -27,6 +27,7 @@ import sys
 import json
 from datetime import timedelta
 from celery.schedules import crontab
+from flask import Flask
 from flask_caching.backends.rediscache import RedisCache
 from superset.tasks.types import FixedExecutor
 from superset.superset_typing import CacheConfig
@@ -431,21 +432,35 @@ if os.getenv("CYPRESS_CONFIG") == "true":
 #
 try:
     import superset_config_docker
-    from superset_config_docker import *  # noqa
+    from superset_config_docker import *  # noqa: F403
 
     logger.info(
-        f"Loaded your Docker configuration at " f"[{superset_config_docker.__file__}]"
+        f"Loaded your Docker configuration at [{superset_config_docker.__file__}]"
     )
 except ImportError:
     logger.info("Using default Docker config...")
 
-# Import and apply BigQuery caching patch
-# The patch module will be loaded automatically when imported
+# Import the Datakimia BigQuery engine/client caching optimization. The database
+# patch is applied from FLASK_APP_MUTATOR, after Superset has registered its models.
 try:
     import bigquery_cache_patch
+
     logger.info("BigQuery caching optimization loaded")
 except ImportError:
-    # Patch module not found, continue without it
-    logger.warning("Warning: bigquery_cache_patch module not found, BigQuery caching disabled")
-except Exception as e:
-    logger.warning(f"Warning: Could not load BigQuery cache patch: {e}")
+    logger.warning(
+        "Warning: bigquery_cache_patch module not found, "
+        "BigQuery caching optimization disabled"
+    )
+except Exception as ex:  # pylint: disable=broad-except
+    logger.warning("Warning: Could not load BigQuery cache patch: %s", ex)
+else:
+    _previous_flask_app_mutator = globals().get("FLASK_APP_MUTATOR")
+
+    def datakimia_flask_app_mutator(app: Flask) -> None:
+        """Apply Datakimia app customizations after Superset initialization."""
+        if callable(_previous_flask_app_mutator):
+            _previous_flask_app_mutator(app)
+        if not bigquery_cache_patch.apply_database_patch():
+            logger.warning("BigQuery engine caching optimization was not applied")
+
+    FLASK_APP_MUTATOR = datakimia_flask_app_mutator

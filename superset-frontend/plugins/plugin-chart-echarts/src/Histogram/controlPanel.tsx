@@ -142,6 +142,20 @@ const config: ControlPanelConfig = {
         ],
         [
           {
+            name: 'x_axis_format',
+            config: {
+              type: 'SelectControl',
+              freeForm: true,
+              label: t('X Axis Format'),
+              renderTrigger: true,
+              default: 'SMART_NUMBER',
+              choices: D3_FORMAT_OPTIONS,
+              description: `${D3_FORMAT_DOCS} ${D3_NUMBER_FORMAT_DESCRIPTION_VALUES_TEXT}`,
+            },
+          },
+        ],
+        [
+          {
             name: 'y_axis_title',
             config: {
               type: 'TextControl',
@@ -149,6 +163,20 @@ const config: ControlPanelConfig = {
               renderTrigger: true,
               default: '',
               description: t('Changing this control takes effect instantly'),
+            },
+          },
+        ],
+        [
+          {
+            name: 'y_axis_format',
+            config: {
+              type: 'SelectControl',
+              freeForm: true,
+              label: t('Y Axis Format'),
+              renderTrigger: true,
+              default: 'SMART_NUMBER',
+              choices: D3_FORMAT_OPTIONS,
+              description: `${D3_FORMAT_DOCS} ${D3_NUMBER_FORMAT_DESCRIPTION_VALUES_TEXT}`,
             },
           },
         ],

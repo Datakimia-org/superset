@@ -21,6 +21,8 @@ import { logging } from '@superset-ui/core';
 import { BootstrapData } from 'src/types/bootstrapTypes';
 import { DEFAULT_BOOTSTRAP_DATA } from 'src/constants';
 
+let cachedBootstrapData: BootstrapData | null = null;
+
 /**
  * Unescapes common HTML entities found in HTML attributes.
  * This handles cases where the data-bootstrap attribute contains escaped characters.
@@ -126,13 +128,8 @@ function convertPythonStyleToJson(pythonStyleData: string): string {
  *
  * This function implements a tolerant parser that:
  * 1. First attempts strict JSON.parse
- * 2. Falls back to evaluating JavaScript object literals (for single-quoted strings)
+ * 2. Converts Python-style string delimiters and retries JSON.parse
  * 3. Logs warnings when non-standard format is detected
- *
- * SECURITY NOTE: The fallback uses Function constructor which is safe here because:
- * - The source is always the server-generated data-bootstrap attribute
- * - This is same-origin trusted content from Superset backend
- * - Never use this pattern with user-supplied or untrusted data
  */
 function parseBootstrapData(rawData: string): BootstrapData {
   // Unescape HTML entities that might be present in the attribute
@@ -194,20 +191,46 @@ function parseBootstrapData(rawData: string): BootstrapData {
 }
 
 export default function getBootstrapData(): BootstrapData {
-  const appContainer = document.getElementById('app');
-  const dataBootstrap = appContainer?.getAttribute('data-bootstrap');
+  if (cachedBootstrapData === null) {
+    const appContainer = document.getElementById('app');
+    const dataBootstrap = appContainer?.getAttribute('data-bootstrap');
 
-  if (!dataBootstrap) {
-    return DEFAULT_BOOTSTRAP_DATA;
+    if (!dataBootstrap) {
+      cachedBootstrapData = DEFAULT_BOOTSTRAP_DATA;
+    } else {
+      try {
+        cachedBootstrapData = parseBootstrapData(dataBootstrap);
+      } catch (error) {
+        logging.error(
+          '[Superset] Failed to load bootstrap data, using defaults:',
+          error,
+        );
+        cachedBootstrapData = DEFAULT_BOOTSTRAP_DATA;
+      }
+    }
   }
+  return cachedBootstrapData;
+}
 
-  try {
-    return parseBootstrapData(dataBootstrap);
-  } catch (error) {
-    logging.error(
-      '[Superset] Failed to load bootstrap data, using defaults:',
-      error,
-    );
-    return DEFAULT_BOOTSTRAP_DATA;
-  }
+const normalizePathWithFallback = (
+  path: string | undefined,
+  fallback: string,
+): string => (path ?? fallback).replace(/\/$/, '');
+
+const APPLICATION_ROOT_NO_TRAILING_SLASH = normalizePathWithFallback(
+  getBootstrapData().common.application_root,
+  DEFAULT_BOOTSTRAP_DATA.common.application_root,
+);
+
+const STATIC_ASSETS_PREFIX_NO_TRAILING_SLASH = normalizePathWithFallback(
+  getBootstrapData().common.static_assets_prefix,
+  DEFAULT_BOOTSTRAP_DATA.common.static_assets_prefix,
+);
+
+export function applicationRoot(): string {
+  return APPLICATION_ROOT_NO_TRAILING_SLASH;
+}
+
+export function staticAssetsPrefix(): string {
+  return STATIC_ASSETS_PREFIX_NO_TRAILING_SLASH;
 }

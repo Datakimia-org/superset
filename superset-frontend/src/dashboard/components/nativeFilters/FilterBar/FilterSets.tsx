@@ -18,10 +18,9 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { css, SupersetTheme, t, DataMaskStateWithId } from '@superset-ui/core';
-import Modal from 'src/components/Modal';
-import Button from 'src/components/Button';
+import { Button, Modal } from '@superset-ui/core/components';
+import { Icons } from '@superset-ui/core/components/Icons';
 import { Empty, Spin } from 'antd';
-import Icons from 'src/components/Icons';
 import {
   getFilterSets,
   deleteFilterSetEntry,
@@ -39,20 +38,20 @@ interface FilterSetsProps {
 const containerStyle = (theme: SupersetTheme) => css`
   max-height: 500px;
   overflow-y: auto;
-  padding: ${theme.gridUnit * 2}px 0;
+  padding: ${theme.sizeUnit * 2}px 0;
 `;
 
 const itemStyle = (theme: SupersetTheme) => css`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: ${theme.gridUnit * 3}px ${theme.gridUnit * 4}px;
-  border-bottom: 1px solid ${theme.colors.grayscale.light2};
+  padding: ${theme.sizeUnit * 3}px ${theme.sizeUnit * 4}px;
+  border-bottom: 1px solid ${theme.colorBorderSecondary};
   cursor: pointer;
   transition: background-color 0.2s;
 
   &:hover {
-    background-color: ${theme.colors.grayscale.light4};
+    background-color: ${theme.colorFillSecondary};
   }
 
   &:last-child {
@@ -64,36 +63,36 @@ const itemInfoStyle = (theme: SupersetTheme) => css`
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: ${theme.gridUnit}px;
+  gap: ${theme.sizeUnit}px;
 `;
 
 const labelStyle = (theme: SupersetTheme) => css`
-  font-size: ${theme.typography.sizes.s}px;
-  color: ${theme.colors.grayscale.base};
-  font-weight: ${theme.typography.weights.bold};
+  font-size: ${theme.fontSizeSM}px;
+  color: ${theme.colorTextSecondary};
+  font-weight: ${theme.fontWeightStrong};
 `;
 
 const filtersListStyle = (theme: SupersetTheme) => css`
-  font-size: ${theme.typography.sizes.xs}px;
-  color: ${theme.colors.grayscale.light1};
+  font-size: ${theme.fontSizeXS}px;
+  color: ${theme.colorTextTertiary};
   display: flex;
   flex-direction: column;
-  gap: ${theme.gridUnit}px;
+  gap: ${theme.sizeUnit}px;
 `;
 
 const filterItemStyle = (theme: SupersetTheme) => css`
   display: flex;
-  gap: ${theme.gridUnit}px;
+  gap: ${theme.sizeUnit}px;
   align-items: baseline;
 `;
 
 const filterNameStyle = (theme: SupersetTheme) => css`
-  font-weight: ${theme.typography.weights.bold};
-  color: ${theme.colors.grayscale.dark1};
+  font-weight: ${theme.fontWeightStrong};
+  color: ${theme.colorText};
 `;
 
 const filterValueStyle = (theme: SupersetTheme) => css`
-  color: ${theme.colors.grayscale.base};
+  color: ${theme.colorTextSecondary};
   font-style: italic;
 `;
 
@@ -108,14 +107,14 @@ const deleteButtonStyle = css`
 `;
 
 const emptyStateStyle = (theme: SupersetTheme) => css`
-  padding: ${theme.gridUnit * 10}px;
+  padding: ${theme.sizeUnit * 10}px;
   text-align: center;
 `;
 
 const labelContainerStyle = (theme: SupersetTheme) => css`
   display: flex;
   align-items: center;
-  gap: ${theme.gridUnit}px;
+  gap: ${theme.sizeUnit}px;
 
   .edit-icon {
     opacity: 0;
@@ -129,27 +128,27 @@ const labelContainerStyle = (theme: SupersetTheme) => css`
 
 const editIconStyle = (theme: SupersetTheme) => css`
   cursor: pointer;
-  color: ${theme.colors.grayscale.base};
+  color: ${theme.colorTextSecondary};
   display: flex;
   align-items: center;
-  background: ${theme.colors.grayscale.light5};
-  border: 1px solid ${theme.colors.grayscale.light2};
+  background: ${theme.colorFillTertiary};
+  border: 1px solid ${theme.colorBorderSecondary};
   border-radius: ${theme.borderRadius}px;
-  padding: ${theme.gridUnit}px;
+  padding: ${theme.sizeUnit}px;
   transition: all 0.2s;
 
   &:hover {
-    color: ${theme.colors.primary.base};
-    border-color: ${theme.colors.primary.light1};
-    background: ${theme.colors.primary.light5};
+    color: ${theme.colorPrimary};
+    border-color: ${theme.colorPrimaryBorder};
+    background: ${theme.colorPrimaryBg};
   }
 `;
 
 const labelInputStyle = (theme: SupersetTheme) => css`
-  font-size: ${theme.typography.sizes.s}px;
-  font-weight: ${theme.typography.weights.bold};
-  padding: ${theme.gridUnit}px;
-  border: 1px solid ${theme.colors.primary.base};
+  font-size: ${theme.fontSizeSM}px;
+  font-weight: ${theme.fontWeightStrong};
+  padding: ${theme.sizeUnit}px;
+  border: 1px solid ${theme.colorPrimary};
   border-radius: ${theme.borderRadius}px;
   outline: none;
   min-width: 200px;
@@ -339,7 +338,7 @@ const FilterSets = ({
                 onClick={e => handleStartEdit(e, entry)}
                 aria-label={t('Edit label')}
               >
-                <Icons.EditAlt iconSize="m" />
+                <Icons.EditOutlined iconSize="m" />
               </button>
             </div>
           )}
@@ -364,7 +363,7 @@ const FilterSets = ({
           onClick={e => handleDelete(e, entry.id)}
           aria-label={t('Delete')}
         >
-          <Icons.Trash iconSize="l" />
+          <Icons.DeleteOutlined iconSize="l" />
         </button>
       </div>
     ));

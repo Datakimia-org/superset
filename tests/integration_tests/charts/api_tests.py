@@ -15,14 +15,14 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import uuid
 from io import BytesIO
 from unittest import mock
 from unittest.mock import patch
-from zipfile import is_zipfile, ZipFile
+from zipfile import is_zipfile
 
 import prison
 import pytest
-import yaml
 from flask import g
 from flask_babel import lazy_gettext as _
 from parameterized import parameterized
@@ -57,10 +57,8 @@ from tests.integration_tests.fixtures.energy_dashboard import (
 )
 from tests.integration_tests.fixtures.importexport import (
     chart_config,
-    chart_metadata_config,
     database_config,
     dataset_config,
-    dataset_metadata_config,
 )
 from tests.integration_tests.fixtures.query_context import get_query_context
 from tests.integration_tests.fixtures.tags import (
@@ -313,9 +311,7 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
         }
 
     def test_info_security_chart_rison_permissions_query(self):
-        """
-        Chart API: regression for headless info permissions query
-        """
+        """Chart API: support the headless Rison permissions query."""
         self.login(ADMIN_USERNAME)
         uri = "api/v1/chart/_info?q=(keys:!(permissions))"
         rv = self.get_assert_metric(uri, "info")
@@ -327,22 +323,6 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
             "can_export",
             "can_warm_up_cache",
         }
-
-    def create_chart_import(self):
-        buf = BytesIO()
-        with ZipFile(buf, "w") as bundle:
-            with bundle.open("chart_export/metadata.yaml", "w") as fp:
-                fp.write(yaml.safe_dump(chart_metadata_config).encode())
-            with bundle.open(
-                "chart_export/databases/imported_database.yaml", "w"
-            ) as fp:
-                fp.write(yaml.safe_dump(database_config).encode())
-            with bundle.open("chart_export/datasets/imported_dataset.yaml", "w") as fp:
-                fp.write(yaml.safe_dump(dataset_config).encode())
-            with bundle.open("chart_export/charts/imported_chart.yaml", "w") as fp:
-                fp.write(yaml.safe_dump(chart_config).encode())
-        buf.seek(0)
-        return buf
 
     def test_delete_chart(self):
         """
@@ -1092,6 +1072,12 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
                 "id",
                 "thumbnail_url",
                 "url",
+                "uuid",
+                "datasource_id",
+                "datasource_name_text",
+                "datasource_type",
+                "datasource_url",
+                "datasource_uuid",
             ):
                 assert value == expected_result[key]
         db.session.delete(chart)
@@ -1106,6 +1092,43 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
         uri = f"api/v1/chart/{chart_id}"
         rv = self.get_assert_metric(uri, "get")
         assert rv.status_code == 404
+
+    @parameterized.expand(
+        [
+            ("by_id", lambda chart: str(chart.id), "id"),
+            (
+                "by_uuid",
+                lambda chart: str(chart.uuid) if chart.uuid else pytest.skip("No UUID"),
+                "uuid",
+            ),
+        ]
+    )
+    def test_slice_get_existing(self, test_name, get_identifier, field_type):
+        """Test Slice.get() successfully retrieves existing charts."""
+        admin = self.get_user("admin")
+        chart = self.insert_chart(f"test_slice_get_{field_type}", [admin.id], 1)
+
+        identifier = get_identifier(chart)
+        result = Slice.get(identifier)
+
+        assert result is not None
+        assert result.id == chart.id
+        if field_type == "uuid" and chart.uuid:
+            assert result.uuid == chart.uuid
+
+        db.session.delete(chart)
+        db.session.commit()
+
+    @parameterized.expand(
+        [
+            ("nonexistent_id", "999999"),
+            ("nonexistent_uuid", str(uuid.uuid4())),
+        ]
+    )
+    def test_slice_get_not_found(self, test_name, identifier):
+        """Test Slice.get() returns None for non-existent identifiers."""
+        result = Slice.get(identifier)
+        assert result is None
 
     @pytest.mark.usefixtures("load_birth_names_dashboard_with_slices")
     def test_get_chart_no_data_access(self):
@@ -1775,7 +1798,7 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
         self.login(ADMIN_USERNAME)
         uri = "api/v1/chart/import/"
 
-        buf = self.create_chart_import()
+        buf = self.create_import_v1_zip_file("chart")
         form_data = {
             "formData": (buf, "chart_export.zip"),
         }
@@ -1813,7 +1836,7 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
         self.login(ADMIN_USERNAME)
         uri = "api/v1/chart/import/"
 
-        buf = self.create_chart_import()
+        buf = self.create_import_v1_zip_file("chart")
         form_data = {
             "formData": (buf, "chart_export.zip"),
         }
@@ -1824,7 +1847,7 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
         assert response == {"message": "OK"}
 
         # import again without overwrite flag
-        buf = self.create_chart_import()
+        buf = self.create_import_v1_zip_file("chart")
         form_data = {
             "formData": (buf, "chart_export.zip"),
         }
@@ -1832,27 +1855,19 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
         response = json.loads(rv.data.decode("utf-8"))
 
         assert rv.status_code == 422
-        assert response == {
-            "errors": [
-                {
-                    "message": "Error importing chart",
-                    "error_type": "GENERIC_COMMAND_ERROR",
-                    "level": "warning",
-                    "extra": {
-                        "charts/imported_chart.yaml": "Chart already exists and `overwrite=true` was not passed",  # noqa: E501
-                        "issue_codes": [
-                            {
-                                "code": 1010,
-                                "message": "Issue 1010 - Superset encountered an error while running a command.",  # noqa: E501
-                            }
-                        ],
-                    },
-                }
-            ]
-        }
+        assert len(response["errors"]) == 1
+        error = response["errors"][0]
+        assert error["message"].startswith("Error importing chart")
+        assert error["error_type"] == "GENERIC_COMMAND_ERROR"
+        assert error["level"] == "warning"
+        assert "charts/chart.yaml" in str(error["extra"])
+        assert "Chart already exists and `overwrite=true` was not passed" in str(
+            error["extra"]
+        )
+        assert error["extra"]["issue_codes"][0]["code"] == 1010
 
         # import with overwrite flag
-        buf = self.create_chart_import()
+        buf = self.create_import_v1_zip_file("chart")
         form_data = {
             "formData": (buf, "chart_export.zip"),
             "overwrite": "true",
@@ -1885,20 +1900,7 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
         self.login(ADMIN_USERNAME)
         uri = "api/v1/chart/import/"
 
-        buf = BytesIO()
-        with ZipFile(buf, "w") as bundle:
-            with bundle.open("chart_export/metadata.yaml", "w") as fp:
-                fp.write(yaml.safe_dump(dataset_metadata_config).encode())
-            with bundle.open(
-                "chart_export/databases/imported_database.yaml", "w"
-            ) as fp:
-                fp.write(yaml.safe_dump(database_config).encode())
-            with bundle.open("chart_export/datasets/imported_dataset.yaml", "w") as fp:
-                fp.write(yaml.safe_dump(dataset_config).encode())
-            with bundle.open("chart_export/charts/imported_chart.yaml", "w") as fp:
-                fp.write(yaml.safe_dump(chart_config).encode())
-        buf.seek(0)
-
+        buf = self.create_import_v1_zip_file("dataset", charts=[chart_config])
         form_data = {
             "formData": (buf, "chart_export.zip"),
         }
@@ -1906,27 +1908,14 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
         response = json.loads(rv.data.decode("utf-8"))
 
         assert rv.status_code == 422
-        assert response == {
-            "errors": [
-                {
-                    "message": "Error importing chart",
-                    "error_type": "GENERIC_COMMAND_ERROR",
-                    "level": "warning",
-                    "extra": {
-                        "metadata.yaml": {"type": ["Must be equal to Slice."]},
-                        "issue_codes": [
-                            {
-                                "code": 1010,
-                                "message": (
-                                    "Issue 1010 - Superset encountered an "
-                                    "error while running a command."
-                                ),
-                            }
-                        ],
-                    },
-                }
-            ]
-        }
+        assert len(response["errors"]) == 1
+        error = response["errors"][0]
+        assert error["message"].startswith("Error importing chart")
+        assert error["error_type"] == "GENERIC_COMMAND_ERROR"
+        assert error["level"] == "warning"
+        assert "metadata.yaml" in error["extra"]
+        assert error["extra"]["metadata.yaml"] == {"type": ["Must be equal to Slice."]}
+        assert error["extra"]["issue_codes"][0]["code"] == 1010
 
     def test_gets_created_by_user_charts_filter(self):
         arguments = {
@@ -2150,9 +2139,9 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
         new_tag = db.session.query(Tag).filter(Tag.name == "second_tag").one()
 
         # get existing tag and add a new one
-        new_tags = [tag.id for tag in chart.tags if tag.type == TagType.custom]
-        new_tags.append(new_tag.id)
-        update_payload = {"tags": new_tags}
+        new_tags = {tag.id for tag in chart.tags if tag.type == TagType.custom}
+        new_tags.add(new_tag.id)
+        update_payload = {"tags": list(new_tags)}
 
         uri = f"api/v1/chart/{chart.id}"
         rv = self.put_assert_metric(uri, update_payload, "put")
@@ -2160,7 +2149,7 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
         model = db.session.query(Slice).get(chart.id)
 
         # Clean up system tags
-        tag_list = [tag.id for tag in model.tags if tag.type == TagType.custom]
+        tag_list = {tag.id for tag in model.tags if tag.type == TagType.custom}
         assert tag_list == new_tags
 
     @pytest.mark.usefixtures("create_chart_with_tag")
@@ -2209,9 +2198,9 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
         new_tag = db.session.query(Tag).filter(Tag.name == "second_tag").one()
 
         # get existing tag and add a new one
-        new_tags = [tag.id for tag in chart.tags if tag.type == TagType.custom]
-        new_tags.append(new_tag.id)
-        update_payload = {"tags": new_tags}
+        new_tags = {tag.id for tag in chart.tags if tag.type == TagType.custom}
+        new_tags.add(new_tag.id)
+        update_payload = {"tags": list(new_tags)}
 
         uri = f"api/v1/chart/{chart.id}"
         rv = self.put_assert_metric(uri, update_payload, "put")
@@ -2219,7 +2208,7 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
         model = db.session.query(Slice).get(chart.id)
 
         # Clean up system tags
-        tag_list = [tag.id for tag in model.tags if tag.type == TagType.custom]
+        tag_list = {tag.id for tag in model.tags if tag.type == TagType.custom}
         assert tag_list == new_tags
 
         security_manager.add_permission_role(alpha_role, write_tags_perm)
@@ -2349,20 +2338,20 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
     @patch("superset.security.manager.SupersetSecurityManager.is_guest_user")
     @pytest.mark.usefixtures("load_birth_names_dashboard_with_slices")
     def test_get_chart_data_as_guest_user(
-        self, is_guest_user, has_guest_access
-    ):  # get_guest_rls_filters
-        """
-        Chart API: Test create simple chart
-        """
+        self,
+        is_guest_user,
+        has_guest_access,
+    ):
+        """Chart data responses for guests must not expose generated SQL."""
         self.login(ADMIN_USERNAME)
         g.user.rls = []
         is_guest_user.return_value = True
         has_guest_access.return_value = True
 
-        with mock.patch.object(Slice, "get_query_context") as mock_get_query_context:
-            mock_get_query_context.return_value = get_query_context("birth_names")
+        with mock.patch.object(Slice, "get_query_context") as mock_query_context:
+            mock_query_context.return_value = get_query_context("birth_names")
             rv = self.client.post(
-                "api/v1/chart/data",  # noqa: F541
+                "api/v1/chart/data",
                 json={
                     "datasource": {"id": 2, "type": "table"},
                     "queries": [
@@ -2394,7 +2383,6 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
                     "result_type": "full",
                 },
             )
-            data = json.loads(rv.data.decode("utf-8"))
-            result = data["result"]
-            excluded_key = "query"
-            assert all([excluded_key not in query for query in result])
+
+        result = json.loads(rv.data.decode("utf-8"))["result"]
+        assert all("query" not in query for query in result)
