@@ -16,8 +16,12 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { ListProps, ListItemProps, ListItemMetaProps } from 'antd-v5/lib/list';
-import { List as AntdList } from 'antd-v5';
+import { List as AntdList } from 'antd';
+import type {
+  ListProps,
+  ListItemProps,
+  ListItemMetaProps,
+} from 'antd/lib/list';
 
 export type { ListProps, ListItemProps, ListItemMetaProps };
 

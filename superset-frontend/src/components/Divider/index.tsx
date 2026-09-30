@@ -17,8 +17,8 @@
  * under the License.
  */
 
-import { Divider as AntdDivider } from 'antd-v5';
-import type { DividerProps } from 'antd-v5/es/divider';
+import { Divider as AntdDivider } from 'antd';
+import type { DividerProps } from 'antd/es/divider';
 
 export function Divider(props: DividerProps) {
   return <AntdDivider {...props} />;

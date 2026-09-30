@@ -23,8 +23,8 @@
  * E.g. import { Select } from 'src/components'
  */
 
-import { Steps as AntdSteps } from 'antd-v5';
-import { StepsProps as AntdStepsProps } from 'antd-v5/es/steps';
+import { Steps as AntdSteps } from 'antd';
+import type { StepsProps as AntdStepsProps } from 'antd/es/steps';
 
 export type StepsProps = AntdStepsProps;
 

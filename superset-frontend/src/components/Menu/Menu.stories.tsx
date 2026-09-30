@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { Menu, MainNav } from '.';
+import { Menu, MainNav } from '@superset-ui/core/components/Menu';
 
 export default {
   title: 'Menu',

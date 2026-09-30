@@ -23,8 +23,8 @@
  * E.g. import { Select } from 'src/components'
  */
 
-import { Space as AntdSpace } from 'antd-v5';
-import type { SpaceProps } from 'antd-v5/es/space';
+import { Space as AntdSpace } from 'antd';
+import type { SpaceProps } from 'antd/es/space';
 
 export function Space(props: SpaceProps) {
   return <AntdSpace {...props} />;
