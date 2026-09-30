@@ -1,0 +1,48 @@
+---
+description: Datakimia fork — validate before push so CI/Docker image build does not fail
+alwaysApply: true
+---
+
+# Pre-push / pipeline validation (Datakimia)
+
+Before pushing to **`ephemeral/**`**, **`client-x/**`**, **`main`**, or any branch that triggers **`.github/workflows/docker-build-push.yml`**, the agent or developer must run the checks below. CI runs **`npm run build`** inside Docker (`DEV_MODE=false`); local **`npm run dev`** does **not** substitute for that.
+
+## Required checks (frontend changes)
+
+From repo root:
+
+```bash
+./scripts/check-legacy-frontend-patterns.sh
+cd superset-frontend && npm run build
+```
+
+- **`npm run build`** must finish with **zero TypeScript errors** (ForkTsChecker runs on tests and stories too).
+- Fix failures before commit/push; do not rely on webpack emitting assets with TS errors in CI (build fails with exit code 1).
+
+## Required checks (Python / mixed changes)
+
+```bash
+git add -A   # or stage intended files only
+pre-commit run   # staged files; activate project venv first
+```
+
+Add targeted tests when touching behavior: `pytest tests/unit_tests/...` or `npm run test -- path.test.tsx`.
+
+## Fork migration footguns (break Docker build)
+
+| Pattern | Use instead |
+|---------|-------------|
+| `antd-v5` | `antd` (Superset 6.x) |
+| `src/components/Menu`, `src/components/Label`, … without a local `index` | `@superset-ui/core/components/...` |
+| Legacy `theme.colors`, `typography.sizes`, `gridUnit` | Ant Design theme tokens (`sizeUnit`, `colorText`, …) |
+| Duplicate components under `src/components/` that were moved to core | Import from core; delete orphaned copies/tests |
+
+## When the user asks to push or update ephemeral
+
+1. Run **legacy pattern scan** + **`npm run build`** if `superset-frontend/` changed.
+2. Run **pre-commit** on staged changes.
+3. Only then commit/push (never push without explicit user request).
+
+## K8s / deployed env checks
+
+Use project skill **`.cursor/skills/datakimia-kubernetes/`**. Environment catalog: sibling **`../product-portal-config`** (`list-environments.sh`). Optional **`runtime_cache`** in `environments.yaml` only for kubectl notes.

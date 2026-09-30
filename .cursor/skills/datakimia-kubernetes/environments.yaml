@@ -1,0 +1,39 @@
+# Datakimia Kubernetes — environment index
+#
+# CANONICAL LIST: sibling repo product-portal-config (not duplicated here).
+#   From superset repo: ../product-portal-config/{lo|hi}/<env-name>/
+#   Namespace in GKE = <env-name> (folder name).
+#
+# Refresh list:
+#   ./.cursor/skills/datakimia-kubernetes/scripts/list-environments.sh
+#
+# Override path: export PORTAL_CONFIG_DIR=/path/to/product-portal-config
+
+source_of_truth:
+  repository: product-portal-config
+  path_from_superset_repo: ../product-portal-config
+  layout: "{cluster}/{env_name}/superset.yaml|frontend.yaml|backend.yaml|*-secrets.yaml"
+  documentation:
+    - ../product-portal-config/README.md
+    - ../product-portal-config/context-docs/00_general-architecture.md
+
+clusters:
+  lo:
+    kubectl_context: GKE-LO
+    helm_values: devops helm values-lo.yaml
+  hi:
+    kubectl_context: GKE-HI
+    helm_values: devops helm values-hi.yaml
+
+defaults:
+  gcp_project: infra-producto
+  superset_image_registry: us-central1-docker.pkg.dev/infra-producto/portal-registry/superset
+
+naming:
+  ephemeral_git_branch: "ephemeral/<slug>"
+  ephemeral_image_tag: "ephemeral-<slug>"
+  ephemeral_namespace: "<slug>"
+
+# Agent-only: kubectl/runtime facts not stored in product-portal-config.
+# Update when first successful debug session for an env (optional).
+runtime_cache: {}

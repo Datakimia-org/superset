@@ -17,6 +17,8 @@ Apache Superset is a data visualization platform with Flask/Python backend and R
 - **NO JavaScript files** - Convert to TypeScript (.ts/.tsx)
 - **NO Enzyme** - Use React Testing Library/Jest (Enzyme fully removed)
 - **Use @superset-ui/core** - Don't import Ant Design directly
+- **NO `antd-v5`** - Superset 6 uses the `antd` package only
+- **NO imports from removed `src/components/*` shims** - Prefer `@superset-ui/core/components/*` when there is no `index.tsx` under `src/components/<Name>/`
 
 ### Testing Strategy Migration
 - **Prefer unit tests** over integration tests
@@ -119,6 +121,7 @@ pre-commit run eslint            # Frontend linting
 - **Follow existing patterns**: Mimic code style, use existing libraries and utilities
 - **Type Safety**: This codebase is actively modernizing toward full TypeScript and type safety
 - **Always run `pre-commit run`** to validate changes before committing
+- **Before push to CI branches**: see **`.cursor/rules/pre-push-pipeline.mdc`** (`./scripts/check-legacy-frontend-patterns.sh` + `superset-frontend` `npm run build`)
 
 ---
 
