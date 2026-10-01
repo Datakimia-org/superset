@@ -76,62 +76,70 @@ def screenshot_obj():
     return BaseScreenshot(url, digest)
 
 
-class TestCacheOnlyOnSuccess:
-    """Test that cache is only saved when image generation succeeds."""
+class TestCacheFailurePersistence:
+    """Failed captures persist Error (+ optional diagnostic PNG)."""
 
     def _setup_mocks(self, mocker: MockerFixture, screenshot_obj):
-        """Helper method to set up common mocks."""
         mocker.patch(BASE_SCREENSHOT_PATH + ".get_from_cache_key", return_value=None)
         get_screenshot = mocker.patch(
             BASE_SCREENSHOT_PATH + ".get_screenshot", return_value=b"image_data"
         )
-        # Mock resize_image to avoid PIL errors with fake image data
         mocker.patch(
             BASE_SCREENSHOT_PATH + ".resize_image", return_value=b"resized_image_data"
         )
         BaseScreenshot.cache = MockCache()
         return get_screenshot
 
-    def test_cache_cleared_when_screenshot_fails(
+    def test_cache_error_without_image_when_screenshot_fails(
         self, mocker: MockerFixture, screenshot_obj, mock_user
     ):
-        """Failed screenshot must not leave an ERROR entry in cache."""
         mocker.patch(BASE_SCREENSHOT_PATH + ".get_from_cache_key", return_value=None)
-        get_screenshot = mocker.patch(
+        mocker.patch(
             BASE_SCREENSHOT_PATH + ".get_screenshot",
             side_effect=Exception("Screenshot failed"),
         )
         BaseScreenshot.cache = MockCache()
         cache_key = screenshot_obj.get_cache_key()
-        BaseScreenshot.cache.set(cache_key, ScreenshotCachePayload().to_dict())
 
         screenshot_obj.compute_and_cache(user=mock_user, force=True)
 
-        get_screenshot.assert_called_once()
-        assert BaseScreenshot.cache.get(cache_key) is None
+        cached_value = BaseScreenshot.cache.get(cache_key)
+        assert cached_value is not None
+        assert cached_value["status"] == "Error"
+        assert cached_value["image"] is None
 
-    def test_cache_cleared_when_resize_fails(
+    def test_cache_error_with_image_on_captured_error(
         self, mocker: MockerFixture, screenshot_obj, mock_user
     ):
-        """Failed resize must not leave an ERROR entry in cache."""
-        self._setup_mocks(mocker, screenshot_obj)
+        from superset.exceptions import ScreenshotCapturedError
+
+        mocker.patch(BASE_SCREENSHOT_PATH + ".get_from_cache_key", return_value=None)
         mocker.patch(
-            BASE_SCREENSHOT_PATH + ".resize_image",
-            side_effect=Exception("Resize failed"),
+            BASE_SCREENSHOT_PATH + ".get_screenshot",
+            side_effect=ScreenshotCapturedError("timeout", image=b"partial_png"),
         )
+        mocker.patch(
+            BASE_SCREENSHOT_PATH + ".resize_image", return_value=b"resized_partial"
+        )
+        BaseScreenshot.cache = MockCache()
         cache_key = screenshot_obj.get_cache_key()
-        BaseScreenshot.cache.set(cache_key, ScreenshotCachePayload().to_dict())
 
         screenshot_obj.compute_and_cache(
             user=mock_user, force=True, window_size=(800, 600), thumb_size=(400, 300)
         )
 
-        assert BaseScreenshot.cache.get(cache_key) is None
+        cached_value = BaseScreenshot.cache.get(cache_key)
+        assert cached_value is not None
+        assert cached_value["status"] == "Error"
+        assert cached_value["image"] is not None
+        # Round-trip keeps Error + image
+        payload = ScreenshotCachePayload.from_dict(cached_value)
+        assert payload.get_status() == "Error"
+        assert payload.get_image().read() == b"resized_partial"
 
     def test_cache_saved_only_when_image_generated(
         self, mocker: MockerFixture, screenshot_obj, mock_user
     ):
-        """Test that cache is only saved when image is successfully generated."""
         self._setup_mocks(mocker, screenshot_obj)
 
         screenshot_obj.compute_and_cache(user=mock_user, force=True)
@@ -145,7 +153,6 @@ class TestCacheOnlyOnSuccess:
     def test_no_intermediate_cache_during_computing(
         self, mocker: MockerFixture, screenshot_obj, mock_user
     ):
-        """Test that cache is not saved during COMPUTING state."""
         mocker.patch(BASE_SCREENSHOT_PATH + ".get_from_cache_key", return_value=None)
         BaseScreenshot.cache = MockCache()
 
@@ -218,11 +225,37 @@ class TestShouldTriggerTask:
 
         assert payload.should_trigger_task(force=False) is True
 
-    def test_trigger_on_error_always(self):
-        """ERROR must always be treated as a miss so retries are not blocked."""
+    def test_trigger_on_error_without_image(self):
+        """ERROR without PNG retries immediately."""
         fresh_timestamp = (datetime.now() - timedelta(seconds=1)).isoformat()
         payload = ScreenshotCachePayload(
             status=StatusValues.ERROR, timestamp=fresh_timestamp
+        )
+
+        assert payload.should_trigger_task(force=False) is True
+
+    @patch("superset.utils.screenshots.app")
+    def test_no_trigger_on_fresh_error_with_image(self, mock_app):
+        """ERROR with diagnostic PNG is servable until TTL expires."""
+        mock_app.config = {"THUMBNAIL_ERROR_CACHE_TTL": 300}
+        fresh_timestamp = (datetime.now() - timedelta(seconds=1)).isoformat()
+        payload = ScreenshotCachePayload(
+            image=b"diag_png",
+            status=StatusValues.ERROR,
+            timestamp=fresh_timestamp,
+        )
+
+        assert payload.get_status() == "Error"
+        assert payload.should_trigger_task(force=False) is False
+
+    @patch("superset.utils.screenshots.app")
+    def test_trigger_on_expired_error_with_image(self, mock_app):
+        mock_app.config = {"THUMBNAIL_ERROR_CACHE_TTL": 300}
+        old_timestamp = (datetime.now() - timedelta(seconds=400)).isoformat()
+        payload = ScreenshotCachePayload(
+            image=b"diag_png",
+            status=StatusValues.ERROR,
+            timestamp=old_timestamp,
         )
 
         assert payload.should_trigger_task(force=False) is True
@@ -294,7 +327,7 @@ class TestIntegrationCacheBugFix:
     def test_failed_screenshot_does_not_pollute_cache(
         self, mocker: MockerFixture, screenshot_obj, mock_user
     ):
-        """Failed screenshot clears the key so the next compute can regenerate."""
+        """Failed screenshot stores Error (no PNG) and still allows regeneration."""
         mocker.patch(
             BASE_SCREENSHOT_PATH + ".get_screenshot",
             side_effect=Exception("Network error"),
@@ -305,7 +338,10 @@ class TestIntegrationCacheBugFix:
 
         screenshot_obj.compute_and_cache(user=mock_user, force=True)
 
-        assert BaseScreenshot.cache.get(cache_key) is None
+        cached_value = BaseScreenshot.cache.get(cache_key)
+        assert cached_value is not None
+        assert cached_value["status"] == "Error"
+        assert cached_value["image"] is None
 
         # Subsequent compute succeeds and caches UPDATED
         mocker.patch(

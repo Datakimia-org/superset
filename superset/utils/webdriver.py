@@ -23,6 +23,7 @@ from enum import Enum
 from time import sleep
 from typing import TYPE_CHECKING
 
+from celery.exceptions import SoftTimeLimitExceeded
 from flask import current_app as app
 from packaging import version
 from selenium import __version__ as selenium_version
@@ -39,6 +40,7 @@ from selenium.webdriver.support import expected_conditions as EC  # noqa: N812
 from selenium.webdriver.support.ui import WebDriverWait
 
 from superset.extensions import machine_auth_provider_factory
+from superset.exceptions import ScreenshotCapturedError
 from superset.utils.retries import retry_call
 from superset.utils.screenshot_utils import take_tiled_screenshot
 
@@ -153,6 +155,29 @@ class WebDriverPlaywright(WebDriverProxy):
         if element_name == "standalone":
             return page.screenshot(full_page=True)
         return element.screenshot()
+
+    def _capture_failure_screenshot(
+        self, page: Page, element_name: str
+    ) -> bytes | None:
+        """Best-effort PNG of the page after a wait/load failure."""
+        try:
+            if element_name == "standalone":
+                try:
+                    return self._screenshot_dashboard(page)
+                except Exception:  # pylint: disable=broad-except
+                    logger.debug(
+                        "Dashboard failure screenshot fell back to full page",
+                        exc_info=True,
+                    )
+                    return page.screenshot(full_page=True)
+            try:
+                element = page.locator(f".{element_name}")
+                return WebDriverPlaywright._get_screenshot(page, element, element_name)
+            except Exception:  # pylint: disable=broad-except
+                return page.screenshot(full_page=True)
+        except Exception:  # pylint: disable=broad-except
+            logger.exception("Failed to capture diagnostic screenshot after error")
+            return None
 
     def _screenshot_dashboard(self, page: Page) -> bytes:
         from io import BytesIO
@@ -367,12 +392,20 @@ class WebDriverPlaywright(WebDriverProxy):
                         page, element, element_name
                     )
             except PlaywrightTimeout:
-                # raise again for the finally block, but handled above
-                pass
-            except PlaywrightError:
+                img = self._capture_failure_screenshot(page, element_name)
+                raise ScreenshotCapturedError(
+                    f"Timed out capturing screenshot for {url}",
+                    image=img,
+                ) from None
+            except PlaywrightError as ex:
                 logger.exception(
                     "Encountered an unexpected error when requesting url %s", url
                 )
+                img = self._capture_failure_screenshot(page, element_name)
+                raise ScreenshotCapturedError(
+                    f"Encountered an unexpected error when requesting url {url}",
+                    image=img,
+                ) from ex
             return img
 
 
@@ -596,23 +629,65 @@ class WebDriverSelenium(WebDriverProxy):
                     )
 
             img = element.screenshot_as_png
-        except Exception as ex:
+        except SoftTimeLimitExceeded:
+            raise
+        except TimeoutException as ex:
             logger.warning("exception in webdriver", exc_info=ex)
-            raise
-        except TimeoutException:
-            # raise again for the finally block, but handled above
-            raise
-        except StaleElementReferenceException:
+            img = None
+            try:
+                img = driver.get_screenshot_as_png()
+            except Exception:  # pylint: disable=broad-except
+                logger.exception(
+                    "Failed to capture diagnostic selenium screenshot for %s", url
+                )
+            raise ScreenshotCapturedError(
+                f"Timed out capturing screenshot for {url}",
+                image=img,
+            ) from ex
+        except StaleElementReferenceException as ex:
             logger.exception(
                 "Selenium got a stale element while requesting url %s",
                 url,
             )
-            raise
-        except WebDriverException:
+            img = None
+            try:
+                img = driver.get_screenshot_as_png()
+            except Exception:  # pylint: disable=broad-except
+                logger.exception(
+                    "Failed to capture diagnostic selenium screenshot for %s", url
+                )
+            raise ScreenshotCapturedError(
+                f"Stale element while capturing screenshot for {url}",
+                image=img,
+            ) from ex
+        except WebDriverException as ex:
             logger.exception(
                 "Encountered an unexpected error when requesting url %s", url
             )
-            raise
+            img = None
+            try:
+                img = driver.get_screenshot_as_png()
+            except Exception:  # pylint: disable=broad-except
+                logger.exception(
+                    "Failed to capture diagnostic selenium screenshot for %s", url
+                )
+            raise ScreenshotCapturedError(
+                f"Encountered an unexpected error when requesting url {url}",
+                image=img,
+            ) from ex
+        except Exception as ex:
+            logger.warning("exception in webdriver", exc_info=ex)
+            img = None
+            try:
+                img = driver.get_screenshot_as_png()
+            except Exception:  # pylint: disable=broad-except
+                logger.exception(
+                    "Failed to capture diagnostic selenium screenshot for %s", url
+                )
+            raise ScreenshotCapturedError(
+                f"Failed capturing screenshot for {url}",
+                image=img,
+            ) from ex
         finally:
             self.destroy(driver, app.config["SCREENSHOT_SELENIUM_RETRIES"])
         return img

@@ -1147,6 +1147,15 @@ class CeleryConfig:  # pylint: disable=too-few-public-methods
         "sql_lab.get_sql_results": {
             "rate_limit": "100/s",
         },
+        # Per-worker Chromium throttle after flush/deploy storms. Tune as needed;
+        # with N worker replicas the cluster effective rate is roughly N× these values.
+        # For a hard cluster-wide cap, use a dedicated thumbnail queue / single consumer.
+        "cache_dashboard_thumbnail": {
+            "rate_limit": "1/m",
+        },
+        "cache_chart_thumbnail": {
+            "rate_limit": "2/m",
+        },
     }
     beat_schedule = {
         "reports.scheduler": {
