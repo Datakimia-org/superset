@@ -210,6 +210,9 @@ class CeleryConfig:
         "sql_lab.get_sql_results": {"rate_limit": "100/s"},
         "email_reports.send": {"rate_limit": "1/s", "time_limit": 120, "soft_time_limit": 150},
         "reports.scheduler": {"rate_limit": "1/s"},
+        # Per-worker Chromium throttle (N replicas ⇒ ~N× rate cluster-wide). Tune freely.
+        "cache_dashboard_thumbnail": {"rate_limit": "1/m"},
+        "cache_chart_thumbnail": {"rate_limit": "2/m"},
     }    
     worker_max_tasks_per_child = 10    
     worker_prefetch_multiplier = 1

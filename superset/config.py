@@ -834,6 +834,12 @@ THUMBNAIL_CACHE_CONFIG: CacheConfig = {
     "CACHE_DEFAULT_TIMEOUT": int(timedelta(days=7).total_seconds()),
     "CACHE_NO_NULL_WARNING": True,
 }
+# Orphaned COMPUTING entries (e.g. worker killed mid-run on older builds) are
+# treated as cache misses after this many seconds. Aligns with Celery soft_time_limit.
+THUMBNAIL_COMPUTE_STALE_TTL = int(timedelta(minutes=5).total_seconds())
+# Legacy: ERROR payloads are no longer written to the thumbnail cache. Kept so
+# existing deployments that set it continue to load; is_error_cache_ttl_expired
+# remains for compatibility.
 THUMBNAIL_ERROR_CACHE_TTL = int(timedelta(days=1).total_seconds())
 
 # Time before selenium times out after trying to locate an element on the page and wait
@@ -1140,6 +1146,15 @@ class CeleryConfig:  # pylint: disable=too-few-public-methods
     task_annotations = {
         "sql_lab.get_sql_results": {
             "rate_limit": "100/s",
+        },
+        # Per-worker Chromium throttle after flush/deploy storms. Tune as needed;
+        # with N worker replicas the cluster effective rate is roughly N× these values.
+        # For a hard cluster-wide cap, use a dedicated thumbnail queue / single consumer.
+        "cache_dashboard_thumbnail": {
+            "rate_limit": "1/m",
+        },
+        "cache_chart_thumbnail": {
+            "rate_limit": "2/m",
         },
     }
     beat_schedule = {

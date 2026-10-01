@@ -26,7 +26,10 @@ from typing import cast, TYPE_CHECKING, TypedDict
 from flask import current_app as app
 
 from superset import feature_flag_manager, thumbnail_cache
-from superset.exceptions import ScreenshotImageNotAvailableException
+from superset.exceptions import (
+    ScreenshotCapturedError,
+    ScreenshotImageNotAvailableException,
+)
 from superset.extensions import event_logger
 from superset.utils.hashing import md5_sha_from_dict
 from superset.utils.urls import modify_url_query
@@ -79,7 +82,13 @@ class ScreenshotCachePayload:
     ):
         self._image = image
         self._timestamp = timestamp or datetime.now().isoformat()
-        self.status = StatusValues.UPDATED if image else status
+        # Keep explicit ERROR even when a diagnostic PNG is attached.
+        if status == StatusValues.ERROR:
+            self.status = StatusValues.ERROR
+        elif image:
+            self.status = StatusValues.UPDATED
+        else:
+            self.status = status
 
     @classmethod
     def from_dict(cls, payload: ScreenshotCachePayloadType) -> ScreenshotCachePayload:
@@ -116,11 +125,11 @@ class ScreenshotCachePayload:
         self.status = StatusValues.UPDATED
         self._image = image
 
-    def error(
-        self,
-    ) -> None:
+    def error(self, image: bytes | None = None) -> None:
         self.update_timestamp()
         self.status = StatusValues.ERROR
+        if image is not None:
+            self._image = image
 
     def get_image(self) -> BytesIO:
         if self._image is None:
@@ -141,9 +150,7 @@ class ScreenshotCachePayload:
 
     def is_computing_stale(self) -> bool:
         """Check if a COMPUTING status is stale (task likely failed or stuck)."""
-        # Use the same TTL as error cache - if computing takes longer than this,
-        # it's likely stuck and should be retried
-        computing_ttl = app.config["THUMBNAIL_ERROR_CACHE_TTL"]
+        computing_ttl = app.config["THUMBNAIL_COMPUTE_STALE_TTL"]
         return (
             datetime.now() - datetime.fromisoformat(self.get_timestamp())
         ).total_seconds() >= computing_ttl
@@ -152,7 +159,12 @@ class ScreenshotCachePayload:
         return (
             force
             or self.status == StatusValues.PENDING
-            or (self.status == StatusValues.ERROR and self.is_error_cache_ttl_expired())
+            # ERROR without PNG: retry immediately. ERROR with diagnostic PNG: allow
+            # the UI to serve it until THUMBNAIL_ERROR_CACHE_TTL expires.
+            or (
+                self.status == StatusValues.ERROR
+                and (self._image is None or self.is_error_cache_ttl_expired())
+            )
             or (self.status == StatusValues.COMPUTING and self.is_computing_stale())
             or (self.status == StatusValues.UPDATED and self._image is None)
         )
@@ -263,30 +275,51 @@ class BaseScreenshot:
         logger.info("Processing url for thumbnail: %s", cache_key)
         cache_payload.computing()
         image = None
-        # Assuming all sorts of things can go wrong with Selenium
+        capture_failed = False
+        # Assuming all sorts of things can go wrong with Selenium/Playwright
         try:
             logger.info("trying to generate screenshot")
             with event_logger.log_context(f"screenshot.compute.{self.thumbnail_type}"):
                 image = self.get_screenshot(user=user, window_size=window_size)
+        except ScreenshotCapturedError as ex:
+            logger.warning("Failed at generating thumbnail %s", ex, exc_info=True)
+            image = ex.image
+            capture_failed = True
         except Exception as ex:  # pylint: disable=broad-except
             logger.warning("Failed at generating thumbnail %s", ex, exc_info=True)
-            cache_payload.error()
+            capture_failed = True
         if image and window_size != thumb_size:
             try:
                 image = self.resize_image(image, thumb_size=thumb_size)
             except Exception as ex:  # pylint: disable=broad-except
                 logger.warning("Failed at resizing thumbnail %s", ex, exc_info=True)
-                cache_payload.error()
-                image = None
+                if capture_failed:
+                    # Keep the unresized diagnostic PNG.
+                    pass
+                else:
+                    capture_failed = True
+                    image = None
 
-        # Cache the result (success or error) to avoid immediate retries
-        if image:
+        if image and not capture_failed:
             with event_logger.log_context(f"screenshot.cache.{self.thumbnail_type}"):
                 cache_payload.update(image)
-
-        logger.info("Caching thumbnail: %s", cache_key)
-        self.cache.set(cache_key, cache_payload.to_dict())
-        logger.info("Updated thumbnail cache; Status: %s", cache_payload.get_status())
+            logger.info("Caching thumbnail: %s", cache_key)
+            self.cache.set(cache_key, cache_payload.to_dict())
+            logger.info(
+                "Updated thumbnail cache; Status: %s", cache_payload.get_status()
+            )
+        elif image and capture_failed:
+            cache_payload.error(image)
+            self.cache.set(cache_key, cache_payload.to_dict())
+            logger.info("Saved failed thumbnail screenshot for %s", cache_key)
+        else:
+            # No PNG: persist Error (not Pending/Computing) so retries are allowed
+            # after TTL / immediately when image is absent.
+            cache_payload.error()
+            self.cache.set(cache_key, cache_payload.to_dict())
+            logger.info(
+                "Cached thumbnail error without image for %s", cache_key
+            )
         return
 
     @classmethod

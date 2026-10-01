@@ -17,7 +17,7 @@
 
 # pylint: disable=import-outside-toplevel, unused-argument
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from pytest_mock import MockerFixture
@@ -45,6 +45,10 @@ class MockCache:
     def get(self, _key):
         """Get the cached value."""
         return self._cache
+
+    def delete(self, _key):
+        """Delete the cached value."""
+        self._cache = None
 
 
 @pytest.fixture
@@ -128,19 +132,56 @@ class TestComputeAndCache:
         mocks = self._setup_compute_and_cache(mocker, screenshot_obj)
         get_screenshot: MagicMock = mocks.get("get_screenshot")
         get_screenshot.side_effect = Exception
+        screenshot_obj.cache.set("key", {"status": "Pending"})
         screenshot_obj.compute_and_cache(force=False)
         cache_payload: ScreenshotCachePayloadType = screenshot_obj.cache.get("key")
         assert cache_payload["status"] == "Error"
+        assert cache_payload["image"] is None
 
     def test_resize_error(self, mocker: MockerFixture, screenshot_obj):
         mocks = self._setup_compute_and_cache(mocker, screenshot_obj)
         resize_image: MagicMock = mocks.get("resize_image")
         resize_image.side_effect = Exception
+        screenshot_obj.cache.set("key", {"status": "Pending"})
+        screenshot_obj.compute_and_cache(force=False)
+        cache_payload: ScreenshotCachePayloadType = screenshot_obj.cache.get("key")
+        assert cache_payload["status"] == "Error"
+        assert cache_payload["image"] is None
+
+    def test_screenshot_captured_error_persists_image(
+        self, mocker: MockerFixture, screenshot_obj
+    ):
+        from superset.exceptions import ScreenshotCapturedError
+
+        mocks = self._setup_compute_and_cache(mocker, screenshot_obj)
+        get_screenshot: MagicMock = mocks.get("get_screenshot")
+        get_screenshot.side_effect = ScreenshotCapturedError(
+            "timeout", image=b"partial_png"
+        )
+        screenshot_obj.compute_and_cache(force=False)
+        cache_payload: ScreenshotCachePayloadType = screenshot_obj.cache.get("key")
+        assert cache_payload["status"] == "Error"
+        assert cache_payload["image"] is not None
+
+    def test_failure_does_not_block_subsequent_compute(
+        self, mocker: MockerFixture, screenshot_obj
+    ):
+        mocks = self._setup_compute_and_cache(mocker, screenshot_obj)
+        get_screenshot: MagicMock = mocks.get("get_screenshot")
+        get_screenshot.side_effect = Exception
         screenshot_obj.compute_and_cache(force=False)
         cache_payload: ScreenshotCachePayloadType = screenshot_obj.cache.get("key")
         assert cache_payload["status"] == "Error"
 
-    def test_skips_if_computing(self, mocker: MockerFixture, screenshot_obj):
+        get_screenshot.side_effect = None
+        get_screenshot.return_value = b"recovered_image"
+        screenshot_obj.compute_and_cache(force=False)
+        cache_payload = screenshot_obj.cache.get("key")
+        assert cache_payload["status"] == "Updated"
+
+    @patch("superset.utils.screenshots.app")
+    def test_skips_if_computing(self, mock_app, mocker: MockerFixture, screenshot_obj):
+        mock_app.config = {"THUMBNAIL_COMPUTE_STALE_TTL": 300}
         mocks = self._setup_compute_and_cache(mocker, screenshot_obj)
         cached_value = ScreenshotCachePayload()
         cached_value.computing()
