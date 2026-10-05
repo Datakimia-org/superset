@@ -855,7 +855,11 @@ THUMBNAIL_PENDING_LOCK_TTL = int(
 THUMBNAIL_COMPUTE_STALE_TTL = int(timedelta(minutes=5).total_seconds())
 # TTL for ERROR payloads that carry a diagnostic PNG (e.g. Playwright timeout
 # screenshot). After it expires the thumbnail is regenerated.
-THUMBNAIL_ERROR_CACHE_TTL = int(timedelta(days=1).total_seconds())
+THUMBNAIL_ERROR_CACHE_TTL = int(
+    os.environ.get(
+        "THUMBNAIL_ERROR_CACHE_TTL", int(timedelta(minutes=30).total_seconds())
+    )
+)
 
 # Time before selenium times out after trying to locate an element on the page and wait
 # for that element to load for a screenshot.
