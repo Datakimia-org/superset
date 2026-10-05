@@ -834,6 +834,27 @@ THUMBNAIL_CACHE_CONFIG: CacheConfig = {
     "CACHE_DEFAULT_TIMEOUT": int(timedelta(days=7).total_seconds()),
     "CACHE_NO_NULL_WARNING": True,
 }
+# Thumbnail cache entry lifecycle (THUMBNAIL_CACHE):
+#   - UPDATED (good PNG): written with THUMBNAIL_CACHE_CONFIG["CACHE_DEFAULT_TIMEOUT"].
+#   - PENDING (task enqueued) / COMPUTING (task running): short-lived "in flight"
+#     locks written with THUMBNAIL_PENDING_LOCK_TTL. They must NOT use the long
+#     default TTL, otherwise a lost task / killed worker leaves the key stuck.
+#   - ERROR + diagnostic PNG: written with THUMBNAIL_ERROR_CACHE_TTL.
+#   - Failure without PNG: the key is deleted (no stub).
+#
+# Seconds a PENDING/COMPUTING lock lives in Redis. Should be >= the Celery
+# soft_time_limit of cache_*_thumbnail (300s) so a running task is not
+# duplicated. Overridable via env (e.g. helm configs/<env>/superset.yaml).
+THUMBNAIL_PENDING_LOCK_TTL = int(
+    os.environ.get(
+        "THUMBNAIL_PENDING_LOCK_TTL", int(timedelta(minutes=5).total_seconds())
+    )
+)
+# Orphaned COMPUTING entries (e.g. worker killed mid-run) are treated as cache
+# misses after this many seconds. Aligns with Celery soft_time_limit.
+THUMBNAIL_COMPUTE_STALE_TTL = int(timedelta(minutes=5).total_seconds())
+# TTL for ERROR payloads that carry a diagnostic PNG (e.g. Playwright timeout
+# screenshot). After it expires the thumbnail is regenerated.
 THUMBNAIL_ERROR_CACHE_TTL = int(timedelta(days=1).total_seconds())
 
 # Time before selenium times out after trying to locate an element on the page and wait
@@ -1140,6 +1161,15 @@ class CeleryConfig:  # pylint: disable=too-few-public-methods
     task_annotations = {
         "sql_lab.get_sql_results": {
             "rate_limit": "100/s",
+        },
+        # Per-worker Chromium throttle after flush/deploy storms. Tune as needed;
+        # with N worker replicas the cluster effective rate is roughly N× these values.
+        # For a hard cluster-wide cap, use a dedicated thumbnail queue / single consumer.
+        "cache_dashboard_thumbnail": {
+            "rate_limit": "1/m",
+        },
+        "cache_chart_thumbnail": {
+            "rate_limit": "2/m",
         },
     }
     beat_schedule = {

@@ -490,3 +490,11 @@ class SupersetResultsBackendNotConfigureException(SupersetErrorException):
 
 class ScreenshotImageNotAvailableException(SupersetException):
     status = 404
+
+
+class ScreenshotCapturedError(SupersetException):
+    """Wait/load failed after the page was opened; a diagnostic PNG may be attached."""
+
+    def __init__(self, message: str, image: bytes | None = None):
+        super().__init__(message)
+        self.image = image
