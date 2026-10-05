@@ -17,9 +17,9 @@
 
 """
 Tests for screenshot cache retry behavior:
-1. Failed generations do not persist ERROR (key deleted)
-2. Stale COMPUTING / legacy ERROR are treated as cache misses
-3. Successful UPDATED thumbnails still cache
+1. Failed generations without PNG delete the key (no Pending/Error stub)
+2. Stale PENDING/COMPUTING / legacy ERROR are treated as cache misses
+3. Successful UPDATED thumbnails still cache with the long default TTL
 """
 
 from datetime import datetime, timedelta
@@ -42,10 +42,12 @@ class MockCache:
 
     def __init__(self):
         self._cache = {}
+        self.timeouts = {}
 
-    def set(self, key, value):
-        """Set the cache with a new value."""
+    def set(self, key, value, timeout=None):
+        """Set the cache with a new value (timeout mirrors flask_caching)."""
         self._cache[key] = value
+        self.timeouts[key] = timeout
 
     def get(self, key):
         """Get the cached value."""
@@ -54,6 +56,7 @@ class MockCache:
     def delete(self, key):
         """Delete a cached value."""
         self._cache.pop(key, None)
+        self.timeouts.pop(key, None)
 
     def clear(self):
         """Clear all cached values."""
@@ -103,10 +106,7 @@ class TestCacheFailurePersistence:
 
         screenshot_obj.compute_and_cache(user=mock_user, force=True)
 
-        cached_value = BaseScreenshot.cache.get(cache_key)
-        assert cached_value is not None
-        assert cached_value["status"] == "Error"
-        assert cached_value["image"] is None
+        assert BaseScreenshot.cache.get(cache_key) is None
 
     def test_cache_error_with_image_on_captured_error(
         self, mocker: MockerFixture, screenshot_obj, mock_user
@@ -150,18 +150,18 @@ class TestCacheFailurePersistence:
         assert cached_value["status"] == "Updated"
         assert cached_value["image"] is not None
 
-    def test_no_intermediate_cache_during_computing(
+    def test_computing_lock_uses_short_ttl_during_capture(
         self, mocker: MockerFixture, screenshot_obj, mock_user
     ):
+        """While capturing, only a short-TTL COMPUTING lock may exist."""
         mocker.patch(BASE_SCREENSHOT_PATH + ".get_from_cache_key", return_value=None)
         BaseScreenshot.cache = MockCache()
+        cache_key = screenshot_obj.get_cache_key()
 
         def check_cache_during_screenshot(*args, **kwargs):
-            cache_key = screenshot_obj.get_cache_key()
             cached_value = BaseScreenshot.cache.get(cache_key)
-            assert cached_value is None, (
-                "Cache should not be saved during COMPUTING state"
-            )
+            assert cached_value["status"] == "Computing"
+            assert BaseScreenshot.cache.timeouts[cache_key] == 300
             return b"image_data"
 
         mocker.patch(
@@ -174,10 +174,10 @@ class TestCacheFailurePersistence:
 
         screenshot_obj.compute_and_cache(user=mock_user, force=True)
 
-        cache_key = screenshot_obj.get_cache_key()
         cached_value = BaseScreenshot.cache.get(cache_key)
-        assert cached_value is not None
         assert cached_value["status"] == "Updated"
+        # Successful image keeps the cache default (long) TTL.
+        assert BaseScreenshot.cache.timeouts[cache_key] is None
 
 
 class TestShouldTriggerTask:
@@ -327,7 +327,7 @@ class TestIntegrationCacheBugFix:
     def test_failed_screenshot_does_not_pollute_cache(
         self, mocker: MockerFixture, screenshot_obj, mock_user
     ):
-        """Failed screenshot stores Error (no PNG) and still allows regeneration."""
+        """Failed screenshot leaves no stub and still allows regeneration."""
         mocker.patch(
             BASE_SCREENSHOT_PATH + ".get_screenshot",
             side_effect=Exception("Network error"),
@@ -338,10 +338,7 @@ class TestIntegrationCacheBugFix:
 
         screenshot_obj.compute_and_cache(user=mock_user, force=True)
 
-        cached_value = BaseScreenshot.cache.get(cache_key)
-        assert cached_value is not None
-        assert cached_value["status"] == "Error"
-        assert cached_value["image"] is None
+        assert BaseScreenshot.cache.get(cache_key) is None
 
         # Subsequent compute succeeds and caches UPDATED
         mocker.patch(

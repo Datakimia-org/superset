@@ -37,10 +37,12 @@ class MockCache:
 
     def __init__(self):
         self._cache = None  # Store the cached value
+        self.last_timeout = None
 
-    def set(self, _key, value):
-        """Set the cache with a new value."""
+    def set(self, _key, value, timeout=None):
+        """Set the cache with a new value (timeout mirrors flask_caching)."""
         self._cache = value
+        self.last_timeout = timeout
 
     def get(self, _key):
         """Get the cached value."""
@@ -134,9 +136,8 @@ class TestComputeAndCache:
         get_screenshot.side_effect = Exception
         screenshot_obj.cache.set("key", {"status": "Pending"})
         screenshot_obj.compute_and_cache(force=False)
-        cache_payload: ScreenshotCachePayloadType = screenshot_obj.cache.get("key")
-        assert cache_payload["status"] == "Error"
-        assert cache_payload["image"] is None
+        # No PNG: the Pending/Computing lock is removed, no stub is left behind.
+        assert screenshot_obj.cache.get("key") is None
 
     def test_resize_error(self, mocker: MockerFixture, screenshot_obj):
         mocks = self._setup_compute_and_cache(mocker, screenshot_obj)
@@ -144,9 +145,8 @@ class TestComputeAndCache:
         resize_image.side_effect = Exception
         screenshot_obj.cache.set("key", {"status": "Pending"})
         screenshot_obj.compute_and_cache(force=False)
-        cache_payload: ScreenshotCachePayloadType = screenshot_obj.cache.get("key")
-        assert cache_payload["status"] == "Error"
-        assert cache_payload["image"] is None
+        # No PNG: the Pending/Computing lock is removed, no stub is left behind.
+        assert screenshot_obj.cache.get("key") is None
 
     def test_screenshot_captured_error_persists_image(
         self, mocker: MockerFixture, screenshot_obj
@@ -170,8 +170,7 @@ class TestComputeAndCache:
         get_screenshot: MagicMock = mocks.get("get_screenshot")
         get_screenshot.side_effect = Exception
         screenshot_obj.compute_and_cache(force=False)
-        cache_payload: ScreenshotCachePayloadType = screenshot_obj.cache.get("key")
-        assert cache_payload["status"] == "Error"
+        assert screenshot_obj.cache.get("key") is None
 
         get_screenshot.side_effect = None
         get_screenshot.return_value = b"recovered_image"

@@ -265,6 +265,10 @@ THUMBNAIL_CACHE_CONFIG: CacheConfig = {
     'CACHE_KEY_PREFIX': 'thumbnail_',
     'CACHE_REDIS_URL': f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_RESULTS_DB}"
 }
+# The 10y TTL above applies ONLY to successful thumbnails. PENDING/COMPUTING locks
+# use THUMBNAIL_PENDING_LOCK_TTL (default 300s, see superset/config.py; env
+# override supported) so a dead worker can't leave a key stuck in "Pending".
+THUMBNAIL_PENDING_LOCK_TTL = int(os.getenv("THUMBNAIL_PENDING_LOCK_TTL", "300"))
 # 120s: chart containers can appear after slow SQL (e.g. pg_sleep in repro).
 SCREENSHOT_LOCATE_WAIT = int(timedelta(seconds=120).total_seconds())
 # 120s: wait for ".loading" to disappear; must exceed slow query + render time.

@@ -1159,7 +1159,7 @@ class DashboardRestApi(BaseSupersetModelRestApi):
 
         if cache_payload.should_trigger_task(force):
             logger.info("Triggering screenshot ASYNC")
-            screenshot_obj.cache.set(cache_key, ScreenshotCachePayload().to_dict())
+            screenshot_obj.mark_pending(cache_key)
             cache_dashboard_screenshot.delay(
                 username=get_current_user(),
                 guest_token=(
@@ -1174,6 +1174,9 @@ class DashboardRestApi(BaseSupersetModelRestApi):
                 cache_key=cache_key,
                 force=force,
             )
+            return build_response(202)
+        if cache_payload.is_in_progress():
+            # Already queued/running: report in-progress without re-enqueueing.
             return build_response(202)
         return build_response(200)
 
@@ -1349,13 +1352,26 @@ class DashboardRestApi(BaseSupersetModelRestApi):
                     "Triggering thumbnail compute (dashboard id: %s) ASYNC",
                     str(dashboard.id),
                 )
-            screenshot_obj.cache.set(cache_key, ScreenshotCachePayload().to_dict())
+            screenshot_obj.mark_pending(cache_key)
             cache_dashboard_thumbnail.delay(
                 current_user=current_user,
                 dashboard_id=dashboard.id,
                 force=force,
                 cache_key=cache_key,
             )
+            return self.response(
+                202,
+                cache_key=cache_key,
+                dashboard_url=dashboard_url,
+                image_url=image_url,
+                task_updated_at=cache_payload.get_timestamp(),
+                task_status=cache_payload.get_status(),
+            )
+
+        if cache_payload.is_in_progress():
+            # A task is already queued/running for this key: report it, don't
+            # enqueue a duplicate.
+            self.incr_stats("in_progress", self.thumbnail.__name__)
             return self.response(
                 202,
                 cache_key=cache_key,

@@ -648,7 +648,7 @@ class ChartRestApi(BaseSupersetModelRestApi):
 
         if cache_payload.should_trigger_task(force):
             logger.info("Triggering screenshot ASYNC")
-            screenshot_obj.cache.set(cache_key, ScreenshotCachePayload().to_dict())
+            screenshot_obj.mark_pending(cache_key)
             cache_chart_thumbnail.delay(
                 current_user=get_current_user(),
                 chart_id=chart.id,
@@ -656,6 +656,9 @@ class ChartRestApi(BaseSupersetModelRestApi):
                 thumb_size=thumb_size,
                 force=force,
             )
+            return build_response(202)
+        if cache_payload.is_in_progress():
+            # Already queued/running: report in-progress without re-enqueueing.
             return build_response(202)
         return build_response(200)
 
@@ -784,12 +787,20 @@ class ChartRestApi(BaseSupersetModelRestApi):
             logger.info(
                 "Triggering thumbnail compute (chart id: %s) ASYNC", str(chart.id)
             )
-            screenshot_obj.cache.set(cache_key, ScreenshotCachePayload().to_dict())
+            screenshot_obj.mark_pending(cache_key)
             cache_chart_thumbnail.delay(
                 current_user=current_user,
                 chart_id=chart.id,
                 force=False,
             )
+            return self.response(
+                202,
+                task_updated_at=cache_payload.get_timestamp(),
+                task_status=cache_payload.get_status(),
+            )
+        if cache_payload.is_in_progress():
+            # A task is already queued/running for this key: don't enqueue again.
+            self.incr_stats("in_progress", self.thumbnail.__name__)
             return self.response(
                 202,
                 task_updated_at=cache_payload.get_timestamp(),

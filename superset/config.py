@@ -834,12 +834,27 @@ THUMBNAIL_CACHE_CONFIG: CacheConfig = {
     "CACHE_DEFAULT_TIMEOUT": int(timedelta(days=7).total_seconds()),
     "CACHE_NO_NULL_WARNING": True,
 }
-# Orphaned COMPUTING entries (e.g. worker killed mid-run on older builds) are
-# treated as cache misses after this many seconds. Aligns with Celery soft_time_limit.
+# Thumbnail cache entry lifecycle (THUMBNAIL_CACHE):
+#   - UPDATED (good PNG): written with THUMBNAIL_CACHE_CONFIG["CACHE_DEFAULT_TIMEOUT"].
+#   - PENDING (task enqueued) / COMPUTING (task running): short-lived "in flight"
+#     locks written with THUMBNAIL_PENDING_LOCK_TTL. They must NOT use the long
+#     default TTL, otherwise a lost task / killed worker leaves the key stuck.
+#   - ERROR + diagnostic PNG: written with THUMBNAIL_ERROR_CACHE_TTL.
+#   - Failure without PNG: the key is deleted (no stub).
+#
+# Seconds a PENDING/COMPUTING lock lives in Redis. Should be >= the Celery
+# soft_time_limit of cache_*_thumbnail (300s) so a running task is not
+# duplicated. Overridable via env (e.g. helm configs/<env>/superset.yaml).
+THUMBNAIL_PENDING_LOCK_TTL = int(
+    os.environ.get(
+        "THUMBNAIL_PENDING_LOCK_TTL", int(timedelta(minutes=5).total_seconds())
+    )
+)
+# Orphaned COMPUTING entries (e.g. worker killed mid-run) are treated as cache
+# misses after this many seconds. Aligns with Celery soft_time_limit.
 THUMBNAIL_COMPUTE_STALE_TTL = int(timedelta(minutes=5).total_seconds())
-# Legacy: ERROR payloads are no longer written to the thumbnail cache. Kept so
-# existing deployments that set it continue to load; is_error_cache_ttl_expired
-# remains for compatibility.
+# TTL for ERROR payloads that carry a diagnostic PNG (e.g. Playwright timeout
+# screenshot). After it expires the thumbnail is regenerated.
 THUMBNAIL_ERROR_CACHE_TTL = int(timedelta(days=1).total_seconds())
 
 # Time before selenium times out after trying to locate an element on the page and wait
