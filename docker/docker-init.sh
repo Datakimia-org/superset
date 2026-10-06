@@ -93,6 +93,8 @@ echo_step "3.5" "Complete" "Granting Guest role filter_sets permissions"
 if [ "$SUPERSET_LOAD_EXAMPLES" = "yes" ]; then
     # Load some data to play with
     echo_step "4" "Starting" "Loading examples"
+
+
     # If Cypress run which consumes superset_test_config – load required data for tests
     if [ "$CYPRESS_CONFIG" == "true" ]; then
         superset load_examples --load-test-data

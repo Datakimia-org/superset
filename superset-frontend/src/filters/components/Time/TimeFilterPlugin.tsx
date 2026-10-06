@@ -16,12 +16,10 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import {
-  styled,
-  NO_TIME_RANGE,
-} from '@superset-ui/core';
+import { NO_TIME_RANGE, getExtensionsRegistry } from '@superset-ui/core';
+import { styled } from '@apache-superset/core/theme';
 import { useCallback, useEffect } from 'react';
-import CalendarDatePicker from './CalendarDatePicker';
+import DateFilterControl from 'src/explore/components/controls/DateFilterControl';
 import { PluginFilterTimeProps } from './types';
 import { FilterPluginStyle } from '../common';
 
@@ -83,6 +81,13 @@ export default function TimeFilterPlugin(props: PluginFilterTimeProps) {
     inputRef,
     isOverflowingFilterBar = false,
   } = props;
+  const extensionsRegistry = getExtensionsRegistry();
+
+  const DateFilterControlExtension = extensionsRegistry.get(
+    'filter.dateFilterControl',
+  );
+  const DateFilterComponent = DateFilterControlExtension ?? DateFilterControl;
+
   const handleTimeRangeChange = useCallback(
     (timeRange?: string): void => {
       const isSet = timeRange && timeRange !== NO_TIME_RANGE;
@@ -115,7 +120,7 @@ export default function TimeFilterPlugin(props: PluginFilterTimeProps) {
         onMouseLeave={unsetHoveredFilter}
         tabIndex={-1}
       >
-        <CalendarDatePicker
+        <DateFilterComponent
           value={filterState.value || NO_TIME_RANGE}
           name={props.formData.nativeFilterId || 'time_range'}
           onChange={handleTimeRangeChange}

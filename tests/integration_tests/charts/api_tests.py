@@ -1051,6 +1051,7 @@ class TestChartApi(ApiOwnersTestCaseMixin, InsertChartMixin, SupersetTestCase):
                     "id": 1,
                     "first_name": "admin",
                     "last_name": "user",
+                    "email": "admin@fab.org",
                 }
             ],
             "params": None,

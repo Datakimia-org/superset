@@ -16,17 +16,12 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { OPEN_FILTER_BAR_WIDTH } from 'src/dashboard/constants';
-import { FeatureFlag } from '@superset-ui/core';
-import * as uiCore from '@superset-ui/core';
 import { render, screen, userEvent } from 'spec/helpers/testing-library';
 import ActionButtons from './index';
 
 const createProps = () => ({
   onApply: jest.fn(),
   onClearAll: jest.fn(),
-  onSave: jest.fn(),
-  isSaveDisabled: false,
   dataMaskSelected: {
     DefaultsID: {
       filterState: {
@@ -79,64 +74,4 @@ test('should apply', () => {
   expect(mockedProps.onApply).not.toHaveBeenCalled();
   userEvent.click(applyBtn);
   expect(mockedProps.onApply).toHaveBeenCalled();
-});
-
-describe('custom width', () => {
-  it('sets its default width with OPEN_FILTER_BAR_WIDTH', () => {
-    const mockedProps = createProps();
-    render(<ActionButtons {...mockedProps} />, { useRedux: true });
-    const container = screen.getByTestId('filterbar-action-buttons');
-    expect(container).toHaveStyle({
-      width: `${OPEN_FILTER_BAR_WIDTH - 1}px`,
-    });
-  });
-
-  it('sets custom width', () => {
-    const mockedProps = createProps();
-    const expectedWidth = 423;
-    const { getByTestId } = render(
-      <ActionButtons {...mockedProps} width={expectedWidth} />,
-      {
-        useRedux: true,
-      },
-    );
-    const container = getByTestId('filterbar-action-buttons');
-    expect(container).toHaveStyle({
-      width: `${expectedWidth - 1}px`,
-    });
-  });
-});
-
-describe('save filters visibility', () => {
-  let isFeatureEnabledMock: jest.SpyInstance<boolean, [feature: FeatureFlag]>;
-
-  beforeEach(() => {
-    isFeatureEnabledMock = jest
-      .spyOn(uiCore, 'isFeatureEnabled')
-      .mockReturnValue(true);
-  });
-
-  afterEach(() => {
-    isFeatureEnabledMock.mockRestore();
-  });
-
-  test('shows save actions when allowed', () => {
-    const mockedProps = createProps();
-    render(<ActionButtons {...mockedProps} showSaveFilterActions />, {
-      useRedux: true,
-    });
-
-    expect(screen.getByText('Save')).toBeInTheDocument();
-    expect(screen.getByText('Saved filters')).toBeInTheDocument();
-  });
-
-  test('hides save actions when disallowed', () => {
-    const mockedProps = createProps();
-    render(<ActionButtons {...mockedProps} showSaveFilterActions={false} />, {
-      useRedux: true,
-    });
-
-    expect(screen.queryByText('Save')).not.toBeInTheDocument();
-    expect(screen.queryByText('Saved filters')).not.toBeInTheDocument();
-  });
 });
