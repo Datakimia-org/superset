@@ -213,6 +213,9 @@ RUN rm superset/translations/*/*/*.po
 COPY --from=superset-node /app/superset/translations superset/translations
 COPY --from=python-translation-compiler /app/translations_mo superset/translations
 
+# Copy pythonpath_dev files to the image (can be overwritten by volume mounts)
+COPY --chown=superset:superset docker/pythonpath_dev /app/config/
+
 HEALTHCHECK CMD /app/docker/docker-healthcheck.sh
 CMD ["/app/docker/entrypoints/run-server.sh"]
 EXPOSE ${SUPERSET_PORT}
