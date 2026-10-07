@@ -167,14 +167,26 @@ RUN mkdir -p \
 # Install Playwright and optionally setup headless browsers
 ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright-browsers
 
-ARG INCLUDE_CHROMIUM="false"
+# [DK] Chromium habilitado por defecto: thumbnails y alerts/reports lo necesitan
+#      y la imagen lean de 5.x+ no trae navegador.
+ARG INCLUDE_CHROMIUM="true"
 ARG INCLUDE_FIREFOX="false"
+# [DK] Versión de Playwright fijada: el paquete Python y los browsers descargados
+#      tienen que ser de la misma versión. Usar la misma que figura en
+#      requirements/development.txt para que lean y dev queden alineadas.
+#      Vacío = última versión disponible (no recomendado).
+ARG PLAYWRIGHT_VERSION=""
+# [DK] install-deps solo de los browsers elegidos (no de los tres) y permisos
+#      de lectura para el usuario superset, que es quien corre el worker.
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
     if [ "${INCLUDE_CHROMIUM}" = "true" ] || [ "${INCLUDE_FIREFOX}" = "true" ]; then \
-        uv pip install playwright && \
-        playwright install-deps && \
-        if [ "${INCLUDE_CHROMIUM}" = "true" ]; then playwright install chromium; fi && \
-        if [ "${INCLUDE_FIREFOX}" = "true" ]; then playwright install firefox; fi; \
+        BROWSERS="" && \
+        if [ "${INCLUDE_CHROMIUM}" = "true" ]; then BROWSERS="${BROWSERS} chromium"; fi && \
+        if [ "${INCLUDE_FIREFOX}" = "true" ]; then BROWSERS="${BROWSERS} firefox"; fi && \
+        uv pip install "playwright${PLAYWRIGHT_VERSION:+==${PLAYWRIGHT_VERSION}}" && \
+        playwright install-deps ${BROWSERS} && \
+        playwright install ${BROWSERS} && \
+        chmod -R a+rX "${PLAYWRIGHT_BROWSERS_PATH}"; \
     else \
         echo "Skipping browser installation"; \
     fi
@@ -226,6 +238,11 @@ EXPOSE ${SUPERSET_PORT}
 ######################################################################
 FROM python-common AS lean
 
+# [DK] Los ARG no se heredan entre stages: hay que redeclararlos.
+ARG INCLUDE_CHROMIUM="true"
+ARG INCLUDE_FIREFOX="false"
+ARG PLAYWRIGHT_VERSION=""
+
 # Install Python dependencies using docker/pip-install.sh
 COPY requirements/base.txt requirements/
 
@@ -237,9 +254,24 @@ RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
 # Install the superset package
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
     uv pip install -e .
+
+# [DK] Reasegura el paquete playwright en el venv final, por si la instalación
+#      de base.txt lo removió (playwright no está en base.txt).
+RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
+    if [ "${INCLUDE_CHROMIUM}" = "true" ] || [ "${INCLUDE_FIREFOX}" = "true" ]; then \
+        python -c "import playwright" 2>/dev/null \
+        || uv pip install "playwright${PLAYWRIGHT_VERSION:+==${PLAYWRIGHT_VERSION}}"; \
+    fi
+
 RUN python -m compileall /app/superset
 
 USER superset
+
+# [DK] Smoke test con el mismo usuario que corre el worker: si Chromium no
+#      levanta, el build falla acá en lugar de enterarnos por thumbnails vacíos.
+RUN if [ "${INCLUDE_CHROMIUM}" = "true" ]; then \
+        python -c "from playwright.sync_api import sync_playwright; p = sync_playwright().start(); b = p.chromium.launch(); print('Chromium OK', b.version); b.close(); p.stop()"; \
+    fi
 
 ######################################################################
 # Dev image...
@@ -260,6 +292,8 @@ COPY superset-core superset-core
 COPY superset-extensions-cli superset-extensions-cli
 
 # Install Python dependencies using docker/pip-install.sh
+# [DK] development.txt instala su propia versión de playwright: si no coincide
+#      con PLAYWRIGHT_VERSION, los browsers descargados no van a servir.
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
     /app/docker/pip-install.sh --requires-build-essential -r requirements/development.txt
 # Install the superset package
