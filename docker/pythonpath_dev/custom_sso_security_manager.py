@@ -78,6 +78,17 @@ default_role_pvms = [
 ]
 
 guest_role_pvms = [
+    # 6.1 embedded page calls /api/v1/me/roles/ before rendering the dashboard.
+    ("can_read", "CurrentUserRestApi"),
+    ("can_read", "EmbeddedDashboard"),
+    ("can_read", "Theme"),
+    ("can_read", "CssTemplate"),
+    ("can_read", "DashboardPermalinkRestApi"),
+    ("can_query", "Api"),
+    ("can_query_form_data", "Api"),
+    ("can_get", "Datasource"),
+    ("can_external_metadata", "Datasource"),
+    ("can_write", "DashboardFilterStateRestApi"),
     ("can_read", "SavedQuery"),
     ("can_read", "CSSTemplate"),
     ("can_read", "ReportSchedule"),
