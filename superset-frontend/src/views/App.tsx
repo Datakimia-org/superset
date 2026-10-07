@@ -39,6 +39,10 @@ import setupCodeOverrides from 'src/setup/setupCodeOverrides';
 import { logEvent } from 'src/logger/actions';
 import { store } from 'src/views/store';
 import ExtensionsStartup from 'src/extensions/ExtensionsStartup';
+import {
+  BootstrapData,
+  isUserWithPermissionsAndRoles,
+} from 'src/types/bootstrapTypes';
 import { RootContextProviders } from './RootContextProviders';
 import { ScrollToTop } from './ScrollToTop';
 
@@ -70,7 +74,50 @@ const LocationPathnameLogger = () => {
   return <></>;
 };
 
-const App = () => (
+function hasOnlyDefaultRole(data: BootstrapData) {
+  if (data.user && isUserWithPermissionsAndRoles(data.user)) {
+    const roleNames = Object.keys(data.user.roles);
+    return roleNames.length === 1 && roleNames[0] === 'Default';
+  }
+  return false;
+}
+
+const closeSession = async () => {
+  await fetch(`${applicationRoot()}/logout/`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+};
+
+const App = () => {
+  useEffect(() => {
+    const notifyOpener = async () => {
+      if (!window.opener) {
+        return;
+      }
+
+      try {
+        if (hasOnlyDefaultRole(bootstrapData)) {
+          window.opener.postMessage(
+            {
+              type: 'OAUTH2_SUCCESS',
+              data: {},
+            },
+            '*',
+          );
+        } else {
+          await closeSession();
+        }
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Error handling OAuth popup:', error);
+      }
+    };
+
+    notifyOpener();
+  }, []);
+
+  return (
   <Router basename={applicationRoot()}>
     <ScrollToTop />
     <LocationPathnameLogger />
@@ -108,6 +155,7 @@ const App = () => (
       <ToastContainer />
     </RootContextProviders>
   </Router>
-);
+  );
+};
 
 export default App;

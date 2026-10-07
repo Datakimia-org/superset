@@ -60,8 +60,10 @@ import { getUrlParam } from 'src/utils/urlUtils';
 import { useTabId } from 'src/hooks/useTabId';
 import { logEvent } from 'src/logger/actions';
 import { LOG_ACTIONS_CHANGE_DASHBOARD_FILTER } from 'src/logger/LogUtils';
+import { t } from '@apache-superset/core/translation';
 import { FilterBarOrientation, RootState } from 'src/dashboard/types';
 import { UserWithPermissionsAndRoles } from 'src/types/bootstrapTypes';
+import { useToasts } from 'src/components/MessageToasts/withToasts';
 import { isChartCustomization } from '../FiltersConfigModal/utils';
 import { checkIsApplyDisabled, getFiltersToApply } from './utils';
 import { extractLabel } from '../selectors';
@@ -74,8 +76,11 @@ import {
 } from './state';
 import { createFilterKey, updateFilterKey } from './keyValue';
 import ActionButtons from './ActionButtons';
+import FilterSets from './FilterSets';
 import Horizontal from './Horizontal';
+import SaveFilterModal from './SaveFilterModal';
 import Vertical from './Vertical';
+import { FilterInfo, saveFilterSet } from './filterSetsStorage';
 import {
   useSelectFiltersInScope,
   useChartCustomizationConfiguration,
@@ -172,6 +177,22 @@ const FilterBar: FC<FiltersBarProps> = ({
   const chartCustomizationValues = useChartCustomizationConfiguration();
   const dispatch = useDispatch();
   const [updateKey, setUpdateKey] = useState(0);
+  const [dataMaskSaved, setDataMaskSaved] =
+    useState<DataMaskStateWithId>(dataMaskApplied);
+  const [isFilterSetsOpen, setIsFilterSetsOpen] = useState(false);
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [isPermalinkContext] = useState(() => {
+    const permalinkKey = getUrlParam(URL_PARAMS.permalinkKey);
+    if (typeof permalinkKey !== 'string') {
+      return false;
+    }
+    const normalizedPermalinkKey = permalinkKey.trim().toLowerCase();
+    return normalizedPermalinkKey !== '' && normalizedPermalinkKey !== 'null';
+  });
+  const [pendingAppliedFilters, setPendingAppliedFilters] = useState<
+    FilterInfo[]
+  >([]);
+  const { addDangerToast } = useToasts();
   const tabId = useTabId();
   const filters = useFilters();
   const previousFilters = usePrevious(filters);
@@ -561,6 +582,64 @@ const FilterBar: FC<FiltersBarProps> = ({
     });
   }, []);
 
+  const handleFilterSets = useCallback(() => {
+    setIsFilterSetsOpen(true);
+  }, []);
+
+  const handleCloseFilterSets = useCallback(() => {
+    setIsFilterSetsOpen(false);
+  }, []);
+
+  const handleApplyFilterSet = useCallback(
+    (filterSetDataMask: DataMaskStateWithId) => {
+      setDataMaskSelected(() => filterSetDataMask);
+      Object.entries(filterSetDataMask).forEach(([filterId, dataMask]) => {
+        if (dataMask) {
+          dispatch(updateDataMask(filterId, dataMask));
+        }
+      });
+      dispatch(logEvent(LOG_ACTIONS_CHANGE_DASHBOARD_FILTER, {}));
+      setDataMaskSaved(filterSetDataMask);
+    },
+    [dispatch, setDataMaskSelected],
+  );
+
+  const handleSave = useCallback(() => {
+    const appliedFilters = Object.keys(dataMaskApplied)
+      .filter(
+        filterId => dataMaskApplied[filterId]?.filterState?.value !== undefined,
+      )
+      .map(filterId => ({
+        id: filterId,
+        name: filters[filterId]?.name || filterId,
+        value: dataMaskApplied[filterId]?.filterState?.value,
+      }));
+    setPendingAppliedFilters(appliedFilters);
+    setIsSaveModalOpen(true);
+  }, [dataMaskApplied, filters]);
+
+  const handleConfirmSave = useCallback(
+    async (label: string) => {
+      setIsSaveModalOpen(false);
+      if (dashboardId && pendingAppliedFilters.length > 0) {
+        try {
+          await saveFilterSet(
+            dashboardId,
+            dataMaskApplied,
+            pendingAppliedFilters,
+            label || undefined,
+          );
+        } catch {
+          addDangerToast(t('Failed to save filter set. Please try again.'));
+          return;
+        }
+      }
+      setUpdateKey(prev => prev + 1);
+      setDataMaskSaved(dataMaskApplied);
+    },
+    [addDangerToast, dashboardId, dataMaskApplied, pendingAppliedFilters],
+  );
+
   useFilterUpdates(dataMaskSelected, setDataMaskSelected);
 
   const hasPendingChartCustomizations =
@@ -596,15 +675,29 @@ const FilterBar: FC<FiltersBarProps> = ({
 
   const isInitialized = useInitialization();
 
+  const hasAppliedFilters = Object.values(dataMaskApplied).some(mask => {
+    const value = mask?.filterState?.value;
+    if (value === undefined || value === null) return false;
+    if (Array.isArray(value) && value.length === 0) return false;
+    return true;
+  });
+  const isSaveDisabled =
+    !hasAppliedFilters || isEqual(dataMaskApplied, dataMaskSaved);
+  const showSaveFilterActions = !isPermalinkContext;
+
   const actions = useMemo(
     () => (
       <ActionButtons
         filterBarOrientation={orientation}
         onApply={handleApply}
         onClearAll={handleClearAll}
+        onHistory={handleFilterSets}
+        onSave={handleSave}
         dataMaskSelected={dataMaskSelected}
         dataMaskApplied={dataMaskApplied}
         isApplyDisabled={isApplyDisabled}
+        isSaveDisabled={isSaveDisabled}
+        showSaveFilterActions={showSaveFilterActions}
         chartCustomizationItems={chartCustomizationValues}
         hasOutOfScopeRequiredFilters={hasOutOfScopeRequiredFilters}
       />
@@ -613,9 +706,13 @@ const FilterBar: FC<FiltersBarProps> = ({
       orientation,
       handleApply,
       handleClearAll,
+      handleFilterSets,
+      handleSave,
       dataMaskSelected,
       dataMaskApplied,
       isApplyDisabled,
+      isSaveDisabled,
+      showSaveFilterActions,
       chartCustomizationValues,
       hasOutOfScopeRequiredFilters,
     ],
@@ -660,10 +757,26 @@ const FilterBar: FC<FiltersBarProps> = ({
       />
     ) : null;
 
-  return hidden ? (
-    <HiddenFilterBar>{filterBarComponent}</HiddenFilterBar>
-  ) : (
-    filterBarComponent
+  return (
+    <>
+      {hidden ? (
+        <HiddenFilterBar>{filterBarComponent}</HiddenFilterBar>
+      ) : (
+        filterBarComponent
+      )}
+      <FilterSets
+        isOpen={isFilterSetsOpen}
+        onClose={handleCloseFilterSets}
+        dashboardId={dashboardId}
+        onApplyFilterSet={handleApplyFilterSet}
+      />
+      <SaveFilterModal
+        isOpen={isSaveModalOpen}
+        appliedFilters={pendingAppliedFilters}
+        onConfirm={handleConfirmSave}
+        onClose={() => setIsSaveModalOpen(false)}
+      />
+    </>
   );
 };
 export default memo(FilterBar);

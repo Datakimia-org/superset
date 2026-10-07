@@ -510,7 +510,7 @@ const FilterControls: FC<FilterControlsProps> = ({
     }));
     const dividerItems = [];
     if (
-      (crossFilters.length > 0 || nativeFiltersInScope.length > 0) &&
+      nativeFiltersInScope.length > 0 &&
       chartCustomizationValues.length > 0
     ) {
       dividerItems.push({
@@ -576,7 +576,6 @@ const FilterControls: FC<FilterControlsProps> = ({
     return [
       ...chartCustomizations,
       ...dividerItems,
-      ...crossFilters,
       ...nativeFiltersInScope,
     ];
   }, [

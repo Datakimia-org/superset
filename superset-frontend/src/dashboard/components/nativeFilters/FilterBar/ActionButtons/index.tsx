@@ -21,7 +21,9 @@ import { t } from '@apache-superset/core/translation';
 import {
   DataMaskState,
   DataMaskStateWithId,
+  FeatureFlag,
   isDefined,
+  isFeatureEnabled,
   ChartCustomization,
   ChartCustomizationDivider,
 } from '@superset-ui/core';
@@ -34,10 +36,14 @@ import { getFilterBarTestId } from '../utils';
 interface ActionButtonsProps {
   onApply: () => void;
   onClearAll: () => void;
+  onHistory?: () => void;
+  onSave?: () => void;
+  showSaveFilterActions?: boolean;
   dataMaskSelected: DataMaskState;
   dataMaskApplied: DataMaskStateWithId;
   chartCustomizationItems?: (ChartCustomization | ChartCustomizationDivider)[];
   isApplyDisabled: boolean;
+  isSaveDisabled?: boolean;
   filterBarOrientation?: FilterBarOrientation;
   hasOutOfScopeRequiredFilters?: boolean;
 }
@@ -99,14 +105,19 @@ const clearAllButtonStyle = (theme: SupersetTheme, isVertical: boolean) => css`
 const ActionButtons = ({
   onApply,
   onClearAll,
+  onHistory,
+  onSave,
+  showSaveFilterActions = false,
   dataMaskApplied,
   dataMaskSelected,
   isApplyDisabled,
+  isSaveDisabled = false,
   filterBarOrientation = FilterBarOrientation.Vertical,
   chartCustomizationItems,
   hasOutOfScopeRequiredFilters = false,
 }: ActionButtonsProps) => {
   const isVertical = filterBarOrientation === FilterBarOrientation.Vertical;
+  const isSaveEnabled = isFeatureEnabled(FeatureFlag.DashboardFiltersSave);
 
   const isClearAllEnabled = useMemo(() => {
     const hasSelectedChanges = Object.entries(dataMaskSelected).some(
@@ -151,6 +162,28 @@ const ActionButtons = ({
       >
         {isVertical ? t('Apply filters') : t('Apply')}
       </Button>
+      {isSaveEnabled && showSaveFilterActions && (
+        <Button
+          disabled={isSaveDisabled}
+          buttonStyle="primary"
+          className="filter-save-button"
+          onClick={onSave}
+          {...getFilterBarTestId('save-button')}
+        >
+          {t('Save')}
+        </Button>
+      )}
+      {isSaveEnabled && showSaveFilterActions && (
+        <Button
+          buttonStyle="secondary"
+          buttonSize="small"
+          className="filter-history-button"
+          onClick={onHistory}
+          {...getFilterBarTestId('history-button')}
+        >
+          {t('Saved filters')}
+        </Button>
+      )}
       <Flex>
         <Button
           disabled={!isClearAllEnabled}

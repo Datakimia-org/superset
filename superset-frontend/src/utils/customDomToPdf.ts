@@ -19,7 +19,7 @@
 
 import domToImage from 'dom-to-image-more';
 import { jsPDF } from 'jspdf';
-import { logging } from '@superset-ui/core';
+import { logging } from '@apache-superset/core/utils';
 import {
   A4_WIDTH_PT,
   A4_HEIGHT_PT,

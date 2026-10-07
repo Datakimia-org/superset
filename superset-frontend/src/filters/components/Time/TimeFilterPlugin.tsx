@@ -19,7 +19,7 @@
 import { NO_TIME_RANGE, getExtensionsRegistry } from '@superset-ui/core';
 import { styled } from '@apache-superset/core/theme';
 import { useCallback, useEffect } from 'react';
-import DateFilterControl from 'src/explore/components/controls/DateFilterControl';
+import CalendarDatePicker from './CalendarDatePicker';
 import { PluginFilterTimeProps } from './types';
 import { FilterPluginStyle } from '../common';
 
@@ -86,7 +86,7 @@ export default function TimeFilterPlugin(props: PluginFilterTimeProps) {
   const DateFilterControlExtension = extensionsRegistry.get(
     'filter.dateFilterControl',
   );
-  const DateFilterComponent = DateFilterControlExtension ?? DateFilterControl;
+  const DateFilterComponent = DateFilterControlExtension ?? CalendarDatePicker;
 
   const handleTimeRangeChange = useCallback(
     (timeRange?: string): void => {

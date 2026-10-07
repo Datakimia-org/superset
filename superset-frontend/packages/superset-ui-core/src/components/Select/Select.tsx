@@ -185,32 +185,6 @@ const Select = forwardRef(
       setStableMaxTagCount(maxTagCount);
     }, [maxTagCount, isDropdownVisible, oneLine]);
 
-    // Prevent maxTagCount change during click events to avoid click target disappearing
-    const [stableMaxTagCount, setStableMaxTagCount] = useState(maxTagCount);
-    const isOpeningRef = useRef(false);
-
-    useEffect(() => {
-      if (oneLine) {
-        if (isDropdownVisible && !isOpeningRef.current) {
-          // Mark that we're in the opening process
-          isOpeningRef.current = true;
-          // Use requestAnimationFrame to ensure DOM has settled after the click
-          requestAnimationFrame(() => {
-            setStableMaxTagCount(0);
-            isOpeningRef.current = false;
-          });
-          return;
-        }
-        if (!isDropdownVisible) {
-          // When closing, immediately show the first tag
-          setStableMaxTagCount(1);
-          isOpeningRef.current = false;
-        }
-        return;
-      }
-      setStableMaxTagCount(maxTagCount);
-    }, [maxTagCount, isDropdownVisible, oneLine]);
-
     const mappedMode = isSingleMode ? undefined : 'multiple';
 
     const sortSelectedFirst = useCallback(

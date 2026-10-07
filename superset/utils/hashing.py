@@ -95,3 +95,19 @@ def hash_from_dict(
     )
 
     return hash_from_str(json_data, algorithm=algorithm)
+
+
+def md5_sha_from_str(val: str) -> str:
+    """MD5 hash for stable cache keys (Datakimia chart-data cache compatibility)."""
+    return hash_from_str(val, algorithm="md5")
+
+
+def md5_sha_from_dict(
+    obj: dict[Any, Any],
+    ignore_nan: bool = False,
+    default: Optional[Callable[[Any], Any]] = None,
+) -> str:
+    """MD5 hash of a dict for stable cache keys (Datakimia chart-data cache)."""
+    return hash_from_dict(
+        obj, ignore_nan=ignore_nan, default=default, algorithm="md5"
+    )

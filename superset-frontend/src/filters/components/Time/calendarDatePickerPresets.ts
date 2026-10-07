@@ -8,7 +8,8 @@
  * Legacy rolling presets ("Last week", etc.) are normalized on apply for existing dashboards.
  */
 import moment, { Moment } from 'moment';
-import { NO_TIME_RANGE, t } from '@superset-ui/core';
+import { NO_TIME_RANGE } from '@superset-ui/core';
+import { t } from '@apache-superset/core/translation';
 import {
   CurrentDay,
   CurrentMonth,

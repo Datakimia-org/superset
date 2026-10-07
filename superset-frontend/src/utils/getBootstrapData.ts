@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { logging } from '@superset-ui/core';
+import { logging } from '@apache-superset/core/utils';
 import { BootstrapData } from 'src/types/bootstrapTypes';
 import { DEFAULT_BOOTSTRAP_DATA } from 'src/constants';
 

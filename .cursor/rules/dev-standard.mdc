@@ -121,7 +121,7 @@ pre-commit run eslint            # Frontend linting
 - **Follow existing patterns**: Mimic code style, use existing libraries and utilities
 - **Type Safety**: This codebase is actively modernizing toward full TypeScript and type safety
 - **Always run `pre-commit run`** to validate changes before committing
-- **Before push to CI branches**: see **`.cursor/rules/pre-push-pipeline.mdc`** (`./scripts/check-legacy-frontend-patterns.sh` + `superset-frontend` `npm run build`)
+- **Before push to CI branches**: see **`.cursor/rules/pre-push-pipeline.mdc`** (`./scripts/check-legacy-frontend-patterns.sh`, `./scripts/check-datakimia-wiring.sh`, and `superset-frontend` `npm run build`). The wiring script fails when a Datakimia feature file still exists but its call site was replaced.
 
 ---
 

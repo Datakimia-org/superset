@@ -17,7 +17,8 @@
  * under the License.
  */
 import { useEffect, useRef, useState } from 'react';
-import { css, SupersetTheme, t } from '@superset-ui/core';
+import { css, SupersetTheme } from '@apache-superset/core/theme';
+import { t } from '@apache-superset/core/translation';
 import { Button, Input, Modal } from '@superset-ui/core/components';
 import { FilterInfo } from './filterSetsStorage';
 

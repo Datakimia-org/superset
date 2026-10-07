@@ -13,6 +13,7 @@ From repo root:
 
 ```bash
 ./scripts/check-legacy-frontend-patterns.sh
+./scripts/check-datakimia-wiring.sh
 cd superset-frontend && npm run build
 ```
 
@@ -37,9 +38,26 @@ Add targeted tests when touching behavior: `pytest tests/unit_tests/...` or `npm
 | Legacy `theme.colors`, `typography.sizes`, `gridUnit` | Ant Design theme tokens (`sizeUnit`, `colorText`, …) |
 | Duplicate components under `src/components/` that were moved to core | Import from core; delete orphaned copies/tests |
 
+## Datakimia wiring (upstream merges)
+
+`./scripts/check-datakimia-wiring.sh` checks **call sites**, not file existence. After any upstream merge, run it before declaring the merge done.
+
+Do **not** `git checkout --theirs` (or otherwise replace wholesale) the paths listed at the top of that script. Those files are shared with upstream; taking their version drops Datakimia usage while leaving `CalendarDatePicker.tsx`, `FilterSets.tsx`, `customDomToPdf.ts`, and similar modules in the tree. Hand-merge those paths so the Datakimia call stays and the upstream change is kept around it.
+
+### Growing the wiring script
+
+The script is a **hand-maintained** list. It is not generated from docs. When a Datakimia invariant is disconnected (or newly found) and the script did **not** catch it:
+
+1. Reconnect the call site.
+2. Add a `require "path" "literal-string" "label"` in `scripts/check-datakimia-wiring.sh` for that call site (not for file existence).
+3. If the shared file is merge-conflict prone, add its path to the “do not `--theirs`” list at the top of the script.
+4. Run `./scripts/check-datakimia-wiring.sh` and confirm it passes.
+
+Do this in the same change that fixes the disconnect. Do not wait for the next merge.
+
 ## When the user asks to push or update ephemeral
 
-1. Run **legacy pattern scan** + **`npm run build`** if `superset-frontend/` changed.
+1. Run **legacy pattern scan**, **wiring check**, and **`npm run build`** if `superset-frontend/` changed.
 2. Run **pre-commit** on staged changes.
 3. Only then commit/push (never push without explicit user request).
 

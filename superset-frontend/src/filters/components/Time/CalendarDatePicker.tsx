@@ -1,13 +1,8 @@
 import { useState, useEffect } from 'react';
 import moment, { Moment } from 'moment';
-import {
-  styled,
-  t,
-  fetchTimeRange,
-  NO_TIME_RANGE,
-  useTheme,
-  useCSSTextTruncation,
-} from '@superset-ui/core';
+import { fetchTimeRange, NO_TIME_RANGE, useCSSTextTruncation } from '@superset-ui/core';
+import { styled, useTheme } from '@apache-superset/core/theme';
+import { t } from '@apache-superset/core/translation';
 import {
   Button,
   RangePicker,
