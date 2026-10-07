@@ -195,7 +195,8 @@ RUN /app/docker/apt-install.sh \
       libpq-dev \
       libecpg-dev \
       libldap2-dev \
-      postgresql-client
+      postgresql-client \
+      procps
 
 # Create data directory for DuckDB examples database
 # The database file will be created at runtime when examples are loaded from Parquet files
