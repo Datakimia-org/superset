@@ -180,8 +180,10 @@ class ChartDataRestApi(ChartRestApi):
         # Don't use async queries when cache is disabled (cache_timeout=-1)
         # as async queries depend on caching to retrieve results
         cache_timeout = query_context.get_cache_timeout()
+        # Guest embeds cannot keep the async JWT cookie, so chart/data would 401.
         use_async = (
             is_feature_enabled("GLOBAL_ASYNC_QUERIES")
+            and not security_manager.is_guest_user()
             and query_context.result_format == ChartDataResultFormat.JSON
             and query_context.result_type == ChartDataResultType.FULL
             and cache_timeout != CACHE_DISABLED_TIMEOUT
@@ -320,8 +322,10 @@ class ChartDataRestApi(ChartRestApi):
         # Don't use async queries when cache is disabled (cache_timeout=-1)
         # as async queries depend on caching to retrieve results
         cache_timeout = query_context.get_cache_timeout()
+        # Guest embeds cannot keep the async JWT cookie, so chart/data would 401.
         use_async = (
             is_feature_enabled("GLOBAL_ASYNC_QUERIES")
+            and not security_manager.is_guest_user()
             and query_context.result_format == ChartDataResultFormat.JSON
             and query_context.result_type == ChartDataResultType.FULL
             and cache_timeout != CACHE_DISABLED_TIMEOUT
