@@ -15,24 +15,11 @@
 # specific language governing permissions and limitations
 # under the License.
 import logging
-import os
-import sys
 from typing import Any, Optional
 
 from colorama import Fore, Style
 
 logger = logging.getLogger(__name__)
-
-
-def should_use_colors() -> bool:
-    """Return whether console metrics should include ANSI color codes."""
-    if os.environ.get("NO_COLOR"):
-        return False
-    if os.environ.get("GCP_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT"):
-        return False
-    if not hasattr(sys.stdout, "isatty") or not sys.stdout.isatty():
-        return False
-    return os.environ.get("PYTHONUNBUFFERED") != "1"
 
 
 class BaseStatsLogger:
@@ -63,35 +50,25 @@ class BaseStatsLogger:
 
 
 class DummyStatsLogger(BaseStatsLogger):
-    def __init__(self, prefix: str = "superset") -> None:
-        super().__init__(prefix)
-        self._use_colors = should_use_colors()
-
-    def _format_message(
-        self,
-        operation: str,
-        key: str,
-        value: Optional[str] = None,
-    ) -> str:
-        """Format a stats message for local or structured cloud logging."""
-        message = f"[stats_logger] ({operation}) {key}"
-        if value is not None:
-            message = f"{message} | {value}"
-        if self._use_colors:
-            return f"{Fore.CYAN}{message}{Style.RESET_ALL}"
-        return message
-
     def incr(self, key: str) -> None:
-        logger.debug(self._format_message("incr", key))
+        logger.debug("%s[stats_logger] (incr) %s%s", Fore.CYAN, key, Style.RESET_ALL)
 
     def decr(self, key: str) -> None:
-        logger.debug(self._format_message("decr", key))
+        logger.debug("%s[stats_logger] (decr) %s%s", Fore.CYAN, key, Style.RESET_ALL)
 
     def timing(self, key: str, value: float) -> None:
-        logger.debug(self._format_message("timing", key, str(value)))
+        logger.debug(
+            "%s[stats_logger] (timing) %s | %s %s",
+            Fore.CYAN,
+            key,
+            value,
+            Style.RESET_ALL,
+        )
 
     def gauge(self, key: str, value: float) -> None:
-        logger.debug(self._format_message("gauge", key, str(value)))
+        logger.debug(
+            "%s[stats_logger] (gauge) %s%s%s", Fore.CYAN, key, value, Style.RESET_ALL
+        )
 
 
 try:

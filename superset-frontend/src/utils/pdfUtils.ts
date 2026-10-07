@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { logging } from '@superset-ui/core';
+import { logging } from '@apache-superset/core/utils';
 
 // A4 dimensions in points (at 72 DPI)
 export const A4_WIDTH_PT = 595.28;

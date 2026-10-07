@@ -18,7 +18,9 @@
  */
 import { SyntheticEvent } from 'react';
 import { kebabCase } from 'lodash';
-import { logging, t, supersetTheme } from '@superset-ui/core';
+import { t } from '@apache-superset/core/translation';
+import { logging } from '@apache-superset/core/utils';
+import { supersetTheme } from '@apache-superset/core/theme';
 import { addWarningToast } from 'src/components/MessageToasts/actions';
 import customDomToPdf from './customDomToPdf';
 

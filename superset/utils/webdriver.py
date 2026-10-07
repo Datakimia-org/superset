@@ -21,7 +21,7 @@ import logging
 from abc import ABC, abstractmethod
 from enum import Enum
 from time import sleep
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from celery.exceptions import SoftTimeLimitExceeded
 from flask import current_app as app
@@ -47,6 +47,13 @@ from superset.utils.screenshot_utils import take_tiled_screenshot
 WindowSize = tuple[int, int]
 logger = logging.getLogger(__name__)
 
+# Installation message for missing Playwright (Cypress doesn't work with DeckGL)
+PLAYWRIGHT_INSTALL_MESSAGE = (
+    "To complete the migration from Cypress "
+    "and enable WebGL/DeckGL screenshot support, install Playwright with: "
+    "pip install playwright && playwright install chromium"
+)
+
 if TYPE_CHECKING:
     from typing import Any
 
@@ -71,6 +78,67 @@ except ImportError:
     Locator = Any
     Page = Any
     sync_playwright = None
+
+
+def check_playwright_availability() -> bool:
+    """
+    Lightweight check for Playwright availability.
+
+    First checks if browser binary exists, falls back to launch test if needed.
+    """
+    if sync_playwright is None:
+        return False
+
+    try:
+        with sync_playwright() as p:
+            # First try lightweight check - just verify executable exists
+            try:
+                executable_path = p.chromium.executable_path
+                if executable_path:
+                    return True
+            except Exception:
+                # Fall back to full launch test if executable_path fails
+                logger.debug(
+                    "Executable path check failed, falling back to launch test"
+                )
+
+            # Fallback: actually launch browser to ensure it works
+            browser = p.chromium.launch(headless=True)
+            browser.close()
+            return True
+    except Exception as e:
+        logger.warning(
+            "Playwright module is installed but browser launch failed. "
+            "Run 'playwright install chromium' to install browser binaries. "
+            "Error: %s",
+            str(e),
+        )
+        return False
+
+
+PLAYWRIGHT_AVAILABLE = check_playwright_availability()
+
+
+def validate_webdriver_config() -> dict[str, Any]:
+    """
+    Validate webdriver configuration and dependencies.
+
+    Used to check migration status from Cypress to Playwright.
+    Returns a dictionary with the status of available webdrivers
+    and feature flags.
+    """
+    from superset import feature_flag_manager
+
+    return {
+        "selenium_available": True,  # Always available as required dependency
+        "playwright_available": PLAYWRIGHT_AVAILABLE,
+        "playwright_feature_enabled": feature_flag_manager.is_feature_enabled(
+            "PLAYWRIGHT_REPORTS_AND_THUMBNAILS"
+        ),
+        "recommended_action": (
+            PLAYWRIGHT_INSTALL_MESSAGE if not PLAYWRIGHT_AVAILABLE else None
+        ),
+    }
 
 
 class DashboardStandaloneMode(Enum):
@@ -226,6 +294,15 @@ class WebDriverPlaywright(WebDriverProxy):
     def get_screenshot(  # pylint: disable=too-many-locals, too-many-statements  # noqa: C901
         self, url: str, element_name: str, user: User
     ) -> bytes | None:
+        if not PLAYWRIGHT_AVAILABLE:
+            logger.info(
+                "Playwright not available - falling back to Selenium. "
+                "Note: WebGL/Canvas charts may not render correctly with Selenium. "
+                "%s",
+                PLAYWRIGHT_INSTALL_MESSAGE,
+            )
+            return None
+
         with sync_playwright() as playwright:
             browser_args = app.config["WEBDRIVER_OPTION_ARGS"]
             browser = playwright.chromium.launch(args=browser_args)
@@ -314,7 +391,7 @@ class WebDriverPlaywright(WebDriverProxy):
                         timeout=self._screenshot_load_wait * 1000,
                     )
                 except PlaywrightTimeout:
-                    logger.exception(
+                    logger.warning(
                         "Timed out waiting for charts to load at url %s", url
                     )
                     raise
@@ -366,11 +443,12 @@ class WebDriverPlaywright(WebDriverProxy):
 
                     if use_tiled:
                         logger.info(
-                            (
-                                f"Large dashboard detected: {chart_count} charts, "
-                                f"{dashboard_height}px height. Using tiled screenshots."
-                            )
+                            "Large dashboard detected: %s charts, %spx height. "
+                            "Using tiled screenshots.",
+                            chart_count,
+                            dashboard_height,
                         )
+                        # set viewport height to tile height for easier calculations
                         page.set_viewport_size(
                             {"height": tile_height, "width": viewport_width}
                         )
@@ -406,51 +484,107 @@ class WebDriverPlaywright(WebDriverProxy):
                     f"Encountered an unexpected error when requesting url {url}",
                     image=img,
                 ) from ex
+            finally:
+                browser.close()
             return img
 
 
 class WebDriverSelenium(WebDriverProxy):
+    def _create_firefox_driver(
+        self, pixel_density: float
+    ) -> tuple[type[WebDriver], type[Service], dict[str, Any]]:
+        """Create Firefox driver configuration."""
+        options = firefox.options.Options()
+        profile = FirefoxProfile()
+        profile.set_preference("layout.css.devPixelsPerPx", str(pixel_density))
+        options.profile = profile
+        return (
+            firefox.webdriver.WebDriver,
+            firefox.service.Service,
+            {"options": options},
+        )
+
+    def _create_chrome_driver(
+        self, pixel_density: float
+    ) -> tuple[type[WebDriver], type[Service], dict[str, Any]]:
+        """Create Chrome driver configuration."""
+        options = chrome.options.Options()
+        options.add_argument(f"--force-device-scale-factor={pixel_density}")
+        options.add_argument(f"--window-size={self._window[0]},{self._window[1]}")
+        return (
+            chrome.webdriver.WebDriver,
+            chrome.service.Service,
+            {"options": options},
+        )
+
+    def _normalize_timeout_values(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Convert timeout values to float for urllib3 2.x compatibility."""
+        timeout_keys = [
+            "timeout",
+            "connect_timeout",
+            "socket_timeout",
+            "read_timeout",
+            "page_load_timeout",
+            "implicit_wait",
+            "command_executor_timeout",
+            "connection_timeout",
+        ]
+
+        for key, value in config.items():
+            if any(timeout_key in key.lower() for timeout_key in timeout_keys):
+                if value is None or value == "None" or value == "null":
+                    config[key] = None
+                else:
+                    try:
+                        config[key] = float(value)
+                    except (ValueError, TypeError):
+                        config[key] = None
+                        logger.warning(
+                            "Invalid timeout value for %s: %s, setting to None",
+                            key,
+                            value,
+                        )
+        return config
+
     def create(self) -> WebDriver:
         pixel_density = app.config["WEBDRIVER_WINDOW"].get("pixel_density", 1)
+
+        # Get driver class and initial kwargs based on driver type
         if self._driver_type == "firefox":
-            driver_class: type[WebDriver] = firefox.webdriver.WebDriver
-            service_class: type[Service] = firefox.service.Service
-            options = firefox.options.Options()
-            profile = FirefoxProfile()
-            profile.set_preference("layout.css.devPixelsPerPx", str(pixel_density))
-            options.profile = profile
-            kwargs = {"options": options}
+            driver_class, service_class, kwargs = self._create_firefox_driver(
+                pixel_density
+            )
         elif self._driver_type == "chrome":
-            driver_class = chrome.webdriver.WebDriver
-            service_class = chrome.service.Service
-            options = chrome.options.Options()
-            options.add_argument(f"--force-device-scale-factor={pixel_density}")
-            options.add_argument(f"--window-size={self._window[0]},{self._window[1]}")
-            kwargs = {"options": options}
+            driver_class, service_class, kwargs = self._create_chrome_driver(
+                pixel_density
+            )
         else:
             raise Exception(  # pylint: disable=broad-exception-raised
                 f"Webdriver name ({self._driver_type}) not supported"
             )
 
-        # Prepare args for the webdriver init
+        # Add additional arguments from config
+        options = kwargs["options"]
         for arg in list(app.config["WEBDRIVER_OPTION_ARGS"]):
             options.add_argument(arg)
 
-        # Add additional configured webdriver options
-        webdriver_conf = dict(app.config["WEBDRIVER_CONFIGURATION"])
+        # Fix timeout values for urllib3 2.x compatibility
+        webdriver_config = app.config["WEBDRIVER_CONFIGURATION"].copy()
+        webdriver_config = self._normalize_timeout_values(webdriver_config)
+        kwargs.update(webdriver_config)
 
         # Set the binary location if provided
         # We need to pop it from the dict due to selenium_version < 4.10.0
-        options.binary_location = webdriver_conf.pop("binary_location", "")
+        options.binary_location = webdriver_config.pop("binary_location", "")
 
         if version.parse(selenium_version) < version.parse("4.10.0"):
-            kwargs |= webdriver_conf
+            kwargs |= webdriver_config
         else:
             driver_opts = dict(
-                webdriver_conf.get("options", {"capabilities": {}, "preferences": {}})
+                webdriver_config.get("options", {"capabilities": {}, "preferences": {}})
             )
             driver_srv = dict(
-                webdriver_conf.get(
+                webdriver_config.get(
                     "service",
                     {
                         "log_output": "/dev/null",
@@ -568,7 +702,9 @@ class WebDriverSelenium(WebDriverProxy):
                     EC.presence_of_element_located((By.CLASS_NAME, element_name))
                 )
             except TimeoutException:
-                logger.exception("Selenium timed out requesting url %s", url)
+                logger.warning(
+                    "Selenium timed out requesting url %s", url, exc_info=True
+                )
                 raise
 
             try:
@@ -588,10 +724,11 @@ class WebDriverSelenium(WebDriverProxy):
                             (By.CLASS_NAME, "grid-container")
                         )
                     )
-                except:
-                    logger.exception(
+                except Exception:
+                    logger.warning(
                         "Selenium timed out waiting for dashboard to draw at url %s",
                         url,
+                        exc_info=True,
                     )
                     raise
 
@@ -604,8 +741,10 @@ class WebDriverSelenium(WebDriverProxy):
                     EC.presence_of_all_elements_located((By.CLASS_NAME, "loading"))
                 )
             except TimeoutException:
-                logger.exception(
-                    "Selenium timed out waiting for charts to load at url %s", url
+                logger.warning(
+                    "Selenium timed out waiting for charts to load at url %s",
+                    url,
+                    exc_info=True,
                 )
                 raise
 
@@ -648,6 +787,7 @@ class WebDriverSelenium(WebDriverProxy):
             logger.exception(
                 "Selenium got a stale element while requesting url %s",
                 url,
+                exc_info=True,
             )
             img = None
             try:

@@ -17,7 +17,9 @@
  * under the License.
  */
 import { useState, useEffect, useRef } from 'react';
-import { css, SupersetTheme, t, DataMaskStateWithId } from '@superset-ui/core';
+import { DataMaskStateWithId } from '@superset-ui/core';
+import { css, SupersetTheme } from '@apache-superset/core/theme';
+import { t } from '@apache-superset/core/translation';
 import { Button, Modal } from '@superset-ui/core/components';
 import { Icons } from '@superset-ui/core/components/Icons';
 import { Empty, Spin } from 'antd';
