@@ -142,7 +142,7 @@ def serialize_role_object(role: Any) -> RoleInfo | None:
     return RoleInfo(
         id=getattr(role, "id", None),
         name=getattr(role, "name", None),
-        permissions=[perm.name for perm in getattr(role, "permissions", [])]
+        permissions=[str(perm) for perm in getattr(role, "permissions", [])]
         if hasattr(role, "permissions")
         else None,
     )

@@ -27,7 +27,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class HealthCheckResponse(BaseModel):
@@ -176,6 +176,14 @@ class RoleInfo(BaseModel):
     id: int | None = None
     name: str | None = None
     permissions: List[str] | None = None
+
+    @field_validator("permissions", mode="before")
+    @classmethod
+    def coerce_permissions(cls, value: Any) -> list[str] | None:
+        """Accept FAB PermissionView objects; str() is 'can read on Chart'."""
+        if value is None:
+            return None
+        return [item if isinstance(item, str) else str(item) for item in value]
 
 
 class PaginationInfo(BaseModel):
