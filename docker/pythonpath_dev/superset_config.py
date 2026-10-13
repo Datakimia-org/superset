@@ -213,8 +213,8 @@ class CeleryConfig:
         # Per-worker Chromium throttle (N replicas ⇒ ~N× rate cluster-wide). Tune freely.
         "cache_dashboard_thumbnail": {"rate_limit": "1/m"},
         "cache_chart_thumbnail": {"rate_limit": "2/m"},
-    }    
-    worker_max_tasks_per_child = 10    
+    }
+    worker_max_tasks_per_child = 10
     worker_prefetch_multiplier = 1
     task_acks_late = False
     beat_schedule = {
@@ -237,9 +237,9 @@ FEATURE_FLAGS = {
     "DASHBOARD_FILTERS_SAVE": DASHBOARD_FILTERS_SAVE,
     "ALERT_REPORTS": True,
     "DATASET_FOLDERS": True,
-    "SCHEDULED_QUERIES": True,    
-    "EMBEDDED_SUPERSET": True, 
-    "TAGGING_SYSTEM": True, 
+    "SCHEDULED_QUERIES": True,
+    "EMBEDDED_SUPERSET": True,
+    "TAGGING_SYSTEM": True,
     "THUMBNAILS": True,
     "THUMBNAILS_SQLA_LISTENERS": True,
     "DASHBOARD_RBAC": True,
@@ -366,7 +366,7 @@ AUTH0_PROVIDER =     {
                 'scope': 'openid profile email',
             },
             'jwks_uri':f'{AUTH0_DOMAIN}/.well-known/jwks.json',
-            'userinfo_endpoint':'{AUTH0_DOMAIN}/userinfo'            
+            'userinfo_endpoint':'{AUTH0_DOMAIN}/userinfo'
         }
     }
 
@@ -396,16 +396,16 @@ CORS_OPTIONS = {   # Replace with your frontend domain(s)
     "resources": ["*"],
 }
 
-HTTP_HEADERS = {"X-Frame-Options": "ALLOWALL"} 
+HTTP_HEADERS = {"X-Frame-Options": "ALLOWALL"}
 FAB_ADD_SECURITY_API = True
 
-# Flask-WTF flag for CSRF 
+# Flask-WTF flag for CSRF
 WTF_CSRF_ENABLED = False
 
 # Add endpoints that need to be exempt from CSRF protection
 WTF_CSRF_EXEMPT_LIST = ["/login/google"]
 
-# A CSRF token that expires in 1 year 
+# A CSRF token that expires in 1 year
 WTF_CSRF_TIME_LIMIT = 60 * 60 * 24 * 365
 
 ##############################################3end auth
@@ -478,10 +478,46 @@ else:
 
     FLASK_APP_MUTATOR = datakimia_flask_app_mutator
 
-# MCP is off unless the process has MCP_DEV_USERNAME (the compose MCP service sets it).
-# Client environments leave the variable unset, so this stays disabled there.
+def _mcp_env_flag(name: str, default: bool = False) -> bool:
+    """Read a boolean environment variable without logging its value."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _mcp_env(name: str) -> str | None:
+    value = os.getenv(name, "").strip()
+    return value or None
+
+
+# Bearer auth does not install MCP_DEV_USERNAME. The compose dev service
+# still uses that variable only when MCP_AUTH_ENABLED is unset.
+_mcp_auth_enabled = _mcp_env_flag("MCP_AUTH_ENABLED", False)
 _mcp_dev_username = os.getenv("MCP_DEV_USERNAME", "").strip()
-if _mcp_dev_username:
+if _mcp_auth_enabled:
+    MCP_AUTH_ENABLED = True
+    MCP_JWT_AUDIENCE = _mcp_env("MCP_JWT_AUDIENCE")
+    MCP_JWT_ALGORITHM = _mcp_env("MCP_JWT_ALGORITHM")
+    MCP_JWT_ISSUER = _mcp_env("MCP_JWT_ISSUER")
+    MCP_JWKS_URI = _mcp_env("MCP_JWKS_URI")
+    MCP_JWT_PUBLIC_KEY = _mcp_env("MCP_JWT_PUBLIC_KEY")
+    _mcp_jwt_secret = _mcp_env("MCP_JWT_SECRET")
+    if _mcp_jwt_secret:
+        MCP_JWT_SECRET = _mcp_jwt_secret
+    MCP_OAUTH_PROVIDER = (_mcp_env("MCP_OAUTH_PROVIDER") or "oidc").lower()
+    MCP_OAUTH_CONFIG_URL = _mcp_env("MCP_OAUTH_CONFIG_URL")
+    MCP_OAUTH_CLIENT_ID = _mcp_env("MCP_OAUTH_CLIENT_ID")
+    _mcp_oauth_secret = _mcp_env("MCP_OAUTH_CLIENT_SECRET")
+    if _mcp_oauth_secret:
+        MCP_OAUTH_CLIENT_SECRET = _mcp_oauth_secret
+    MCP_OAUTH_BASE_URL = _mcp_env("MCP_OAUTH_BASE_URL")
+    MCP_AZURE_TENANT_ID = _mcp_env("MCP_AZURE_TENANT_ID")
+    MCP_AUTH0_DOMAIN = _mcp_env("MCP_AUTH0_DOMAIN")
+    MCP_GOOGLE_JWT_ENABLED = _mcp_env_flag("MCP_GOOGLE_JWT_ENABLED", True)
+    MCP_SERVICE_HOST = os.getenv("MCP_SERVICE_HOST", "0.0.0.0")
+    MCP_SERVICE_PORT = int(os.getenv("MCP_PORT", "5008"))
+elif _mcp_dev_username:
     MCP_AUTH_ENABLED = False
     MCP_DEV_USERNAME = _mcp_dev_username
     MCP_SERVICE_HOST = os.getenv("MCP_SERVICE_HOST", "0.0.0.0")

@@ -25,12 +25,14 @@ Provides step-by-step JWT validation with tiered server-side logging:
 HTTP responses always return generic errors per RFC 6750 Section 3.1.
 """
 
+import asyncio
 import base64
 import logging
 import time
 from contextvars import ContextVar
 from typing import Any, cast
 
+import httpx
 from authlib.jose.errors import (
     BadSignatureError,
     DecodeError,
@@ -50,6 +52,38 @@ from starlette.responses import JSONResponse
 from superset.utils import json
 
 logger = logging.getLogger(__name__)
+
+# Algorithms that are never acceptable for bearer-token verification.
+# "none" (unsigned tokens) must never be honored — accepting it would let any
+# caller forge claims. Comparison is case-insensitive to catch "None"/"NONE".
+_FORBIDDEN_ALGORITHMS = frozenset({"none"})
+
+
+def _warn_on_weak_jwt_config(
+    audience: Any,
+    algorithm: Any,
+) -> None:
+    """Emit startup warnings when a JWT verifier is configured permissively.
+
+    Audience is mandatory at factory startup (``MCPAuthConfigError``). This
+    warning still covers verifiers constructed without an audience, and a
+    missing pinned algorithm. Unsigned ('none') tokens are always rejected.
+    """
+    if not audience:
+        logger.warning(
+            "MCP JWT verifier configured without an audience "
+            "(MCP_JWT_AUDIENCE unset): audience validation is DISABLED. "
+            "Tokens minted for other services may be accepted. Set "
+            "MCP_JWT_AUDIENCE to bind tokens to this service."
+        )
+    if not algorithm:
+        logger.warning(
+            "MCP JWT verifier configured without a pinned signing algorithm "
+            "(MCP_JWT_ALGORITHM unset): the algorithm header is not pinned. "
+            "Set MCP_JWT_ALGORITHM to the algorithm your IdP uses. Unsigned "
+            "('none') tokens are always rejected regardless of this setting."
+        )
+
 
 # Thread-safe storage for the specific JWT failure reason.
 # Set by DetailedJWTVerifier.load_access_token() on failure,
@@ -139,6 +173,26 @@ class DetailedJWTVerifier(JWTVerifier):
     Controlled by MCP_JWT_DEBUG_ERRORS config flag.
     """
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        # Capture the explicit algorithm kwarg before super().__init__() can
+        # coerce it (the factory defaults it to "RS256" when MCP_JWT_ALGORITHM
+        # is unset, so self.algorithm is always truthy post-construction).
+        explicit_algorithm = kwargs.get("algorithm")
+        super().__init__(*args, **kwargs)
+        from flask import current_app
+
+        try:
+            config_algorithm = current_app.config.get("MCP_JWT_ALGORITHM")
+        except RuntimeError:
+            # No Flask application context (unit tests construct the verifier
+            # directly). Fall back to the explicit constructor arg.
+            config_algorithm = None
+
+        _warn_on_weak_jwt_config(
+            audience=getattr(self, "audience", None),
+            algorithm=config_algorithm or explicit_algorithm,
+        )
+
     async def load_access_token(self, token: str) -> AccessToken | None:  # noqa: C901
         """
         Validate a JWT bearer token with detailed error reporting.
@@ -160,6 +214,16 @@ class DetailedJWTVerifier(JWTVerifier):
                 return None
 
             token_alg = header.get("alg")
+            # Always reject unsigned ("none") tokens, even when no algorithm
+            # is pinned. An unsigned token has no integrity guarantee.
+            if (
+                isinstance(token_alg, str)
+                and token_alg.lower() in _FORBIDDEN_ALGORITHMS
+            ):
+                reason = "Algorithm not allowed"
+                _jwt_failure_reason.set(reason)
+                logger.debug("Rejected forbidden algorithm")
+                return None
             if self.algorithm and token_alg != self.algorithm:
                 reason = "Algorithm mismatch"
                 _jwt_failure_reason.set(reason)
@@ -170,9 +234,23 @@ class DetailedJWTVerifier(JWTVerifier):
                 )
                 return None
 
-            # Step 2: Get verification key (static or JWKS)
+            # Step 2: Get verification key (static or JWKS).
+            # A JWKS fetch failure must fail closed and reject the token.
             try:
                 verification_key = await self._get_verification_key(token)
+            except (
+                httpx.HTTPError,
+                asyncio.TimeoutError,
+                ConnectionError,
+                OSError,
+            ) as e:
+                reason = "JWKS verification key unavailable"
+                _jwt_failure_reason.set(reason)
+                logger.warning(
+                    "JWKS verification key unavailable (%s)",
+                    type(e).__name__,
+                )
+                return None
             except ValueError as e:
                 reason = "Failed to get verification key"
                 _jwt_failure_reason.set(reason)
@@ -210,6 +288,14 @@ class DetailedJWTVerifier(JWTVerifier):
                 reason = "Token expired"
                 _jwt_failure_reason.set(reason)
                 logger.debug("Token expired for client '%s'", client_id)
+                return None
+
+            # Step 4b: Check not-before (RFC 7519 Section 4.1.5).
+            nbf = claims.get("nbf")
+            if nbf is not None and nbf > time.time():
+                reason = "Token not yet valid"
+                _jwt_failure_reason.set(reason)
+                logger.debug("Token not yet valid: nbf is in the future")
                 return None
 
             # Step 5: Validate issuer

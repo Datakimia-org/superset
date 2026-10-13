@@ -518,7 +518,16 @@ def _create_auth_provider(flask_app: Any) -> Any | None:
 
     Tries MCP_AUTH_FACTORY first, then falls back to the default factory
     when MCP_AUTH_ENABLED is True.
+
+    Fail-closed: when auth has been explicitly configured, a configuration
+    error raises ``MCPAuthConfigError`` so the service refuses to start
+    rather than coming up as an unauthenticated server.
     """
+    from superset.mcp_service.mcp_config import (
+        create_default_mcp_auth_factory,
+        MCPAuthConfigError,
+    )
+
     auth_provider = None
     if auth_factory := flask_app.config.get("MCP_AUTH_FACTORY"):
         try:
@@ -527,23 +536,37 @@ def _create_auth_provider(flask_app: Any) -> Any | None:
                 "Auth provider created from MCP_AUTH_FACTORY: %s",
                 type(auth_provider).__name__ if auth_provider else "None",
             )
-        except Exception:
-            # Do not log the exception — it may contain secrets
+        except MCPAuthConfigError:
+            raise
+        except Exception as ex:
             logger.error("Failed to create auth provider from MCP_AUTH_FACTORY")
+            raise MCPAuthConfigError(
+                "MCP_AUTH_FACTORY is configured but raised "
+                f"{type(ex).__name__} while building the auth provider; "
+                "refusing to start the MCP service without authentication."
+            ) from None
+        if auth_provider is None:
+            raise MCPAuthConfigError(
+                "MCP_AUTH_FACTORY returned no auth provider; refusing to "
+                "start an unauthenticated MCP server."
+            )
     elif flask_app.config.get("MCP_AUTH_ENABLED", False):
-        from superset.mcp_service.mcp_config import (
-            create_default_mcp_auth_factory,
-        )
-
         try:
             auth_provider = create_default_mcp_auth_factory(flask_app)
             logger.info(
                 "Auth provider created from default factory: %s",
                 type(auth_provider).__name__ if auth_provider else "None",
             )
+        except MCPAuthConfigError:
+            raise
         except Exception:
-            # Do not log the exception — it may contain secrets
+            # Do not log or chain the exception — it may contain secrets.
             logger.error("Failed to create auth provider from default factory")
+            raise MCPAuthConfigError(
+                "Failed to build the MCP auth provider from the configured "
+                "auth settings; refusing to start an unauthenticated MCP "
+                "server."
+            ) from None
     return auth_provider
 
 

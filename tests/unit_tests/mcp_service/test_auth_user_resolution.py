@@ -24,10 +24,14 @@ from flask import g
 
 from superset.mcp_service.auth import (
     _resolve_user_from_jwt_context,
+    _setup_user_context,
     get_user_from_request,
     mcp_auth_hook,
 )
-from superset.mcp_service.mcp_config import default_user_resolver
+from superset.mcp_service.mcp_config import (
+    default_user_resolver,
+    idp_email_user_resolver,
+)
 
 
 def _make_mock_user(username: str = "testuser") -> MagicMock:
@@ -427,3 +431,175 @@ def test_default_resolver_preferred_username_takes_priority() -> None:
         }
     )
     assert default_user_resolver(None, token) == "alice"
+
+
+def test_setup_user_context_propagates_valueerror(app) -> None:
+    """ValueError from get_user_from_request propagates — no g.user fallback."""
+    fallback_user = _make_mock_user("middleware_user")
+
+    with app.test_request_context():
+        g.user = fallback_user
+        with patch(
+            "superset.mcp_service.auth.get_user_from_request",
+            side_effect=ValueError("User 'ghost' not found"),
+        ):
+            with pytest.raises(ValueError, match="User 'ghost' not found"):
+                _setup_user_context()
+            assert not hasattr(g, "user") or g.user is None
+
+
+def test_setup_user_context_rejects_disabled_user(app) -> None:
+    """A deactivated account must be denied even with a valid token."""
+    disabled_user = _make_mock_user("disabled_user")
+    disabled_user.is_active = False
+    disabled_user.active = False
+
+    with app.test_request_context():
+        with patch(
+            "superset.mcp_service.auth.get_user_from_request",
+            return_value=disabled_user,
+        ):
+            with pytest.raises(ValueError, match="disabled"):
+                _setup_user_context()
+            assert not hasattr(g, "user") or g.user is None
+
+
+def test_setup_user_context_allows_active_user(app) -> None:
+    """An active account authenticates normally."""
+    active_user = _make_mock_user("active_user")
+    active_user.is_active = True
+    active_user.active = True
+
+    with app.test_request_context():
+        with patch(
+            "superset.mcp_service.auth.get_user_from_request",
+            return_value=active_user,
+        ):
+            result = _setup_user_context()
+            assert result is active_user
+            assert g.user is active_user
+
+
+def test_idp_resolver_looks_up_superset_user_by_email(app) -> None:
+    """Google, Azure, and Auth0 tokens resolve by email, not by username."""
+    mock_user = _make_mock_user("alice")
+    cases = [
+        "https://accounts.google.com",
+        "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0",
+        "https://tenant.auth0.com/",
+    ]
+
+    for issuer in cases:
+        token = _make_access_token(
+            claims={
+                "iss": issuer,
+                "email": "alice@example.com",
+                "preferred_username": "not-alice",
+                "sub": "opaque",
+            }
+        )
+
+        def _load(
+            username: str | None = None,
+            email: str | None = None,
+        ) -> MagicMock | None:
+            assert username is None
+            assert email == "alice@example.com"
+            return mock_user
+
+        with app.app_context():
+            app.config["MCP_USER_RESOLVER"] = idp_email_user_resolver
+            try:
+                with (
+                    patch(
+                        "fastmcp.server.dependencies.get_access_token",
+                        return_value=token,
+                    ),
+                    patch(
+                        "superset.mcp_service.auth.load_user_with_relationships",
+                        side_effect=_load,
+                    ),
+                ):
+                    result = _resolve_user_from_jwt_context(app)
+            finally:
+                app.config.pop("MCP_USER_RESOLVER", None)
+
+        assert result is mock_user
+
+
+def test_idp_resolver_rejects_unknown_issuer_without_dev_fallback(app) -> None:
+    """A JWT whose iss is not an allowed IdP does not fall through."""
+    token = _make_access_token(
+        claims={
+            "iss": "https://evil.example",
+            "email": "alice@example.com",
+            "sub": "admin",
+        }
+    )
+
+    with app.app_context():
+        app.config["MCP_DEV_USERNAME"] = "admin"
+        app.config["MCP_USER_RESOLVER"] = idp_email_user_resolver
+        try:
+            with patch(
+                "fastmcp.server.dependencies.get_access_token",
+                return_value=token,
+            ):
+                with pytest.raises(
+                    ValueError,
+                    match="not Google, Azure Entra, or Auth0",
+                ):
+                    get_user_from_request()
+        finally:
+            app.config.pop("MCP_DEV_USERNAME", None)
+            app.config.pop("MCP_USER_RESOLVER", None)
+
+
+def test_idp_resolver_rejects_missing_email(app) -> None:
+    """An allowed issuer without an email claim fails closed."""
+    token = _make_access_token(
+        claims={"iss": "https://accounts.google.com", "sub": "alice"}
+    )
+
+    with app.app_context():
+        app.config["MCP_USER_RESOLVER"] = idp_email_user_resolver
+        try:
+            with patch(
+                "fastmcp.server.dependencies.get_access_token",
+                return_value=token,
+            ):
+                with pytest.raises(ValueError, match="email"):
+                    _resolve_user_from_jwt_context(app)
+        finally:
+            app.config.pop("MCP_USER_RESOLVER", None)
+
+
+def test_idp_resolver_rejects_unknown_email(app) -> None:
+    """An allowed token whose email is not a Superset user fails closed."""
+    token = _make_access_token(
+        claims={
+            "iss": "https://accounts.google.com",
+            "email": "missing@example.com",
+        }
+    )
+
+    with app.app_context():
+        app.config["MCP_USER_RESOLVER"] = idp_email_user_resolver
+        try:
+            with (
+                patch(
+                    "fastmcp.server.dependencies.get_access_token",
+                    return_value=token,
+                ),
+                patch(
+                    "superset.mcp_service.auth.load_user_with_relationships",
+                    return_value=None,
+                ),
+            ):
+                with pytest.raises(
+                    ValueError,
+                    match="not found in Superset database",
+                ):
+                    _resolve_user_from_jwt_context(app)
+        finally:
+            app.config.pop("MCP_USER_RESOLVER", None)

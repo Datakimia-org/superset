@@ -82,6 +82,20 @@ async def test_algorithm_mismatch(hs256_verifier):
 
 
 @pytest.mark.asyncio
+async def test_unsigned_algorithm_is_rejected(hs256_verifier):
+    """alg=none is rejected before any signature check."""
+    token = _make_token(
+        {"alg": "none", "typ": "JWT"},
+        {"sub": "user1", "iss": "test-issuer", "aud": "test-audience"},
+    )
+
+    result = await hs256_verifier.load_access_token(token)
+
+    assert result is None
+    assert _jwt_failure_reason.get() == "Algorithm not allowed"
+
+
+@pytest.mark.asyncio
 async def test_malformed_token_header(hs256_verifier):
     """Token with invalid header should report malformed header."""
     # A token with only 2 parts (missing signature)

@@ -202,9 +202,17 @@ def _resolve_user_from_jwt_context(app: Any) -> User | None:
     if access_token is None:
         return None
 
-    # Use configurable resolver or default
-    from superset.mcp_service.mcp_config import default_user_resolver
+    # Multi-issuer configs without an issuer-aware MCP_USER_RESOLVER fail
+    # closed. Single-issuer deployments are unchanged.
+    from superset.mcp_service.mcp_config import (
+        default_user_resolver,
+        idp_email_user_resolver,
+        validate_multi_issuer_user_resolver,
+    )
 
+    validate_multi_issuer_user_resolver(app)
+
+    # Use configurable resolver or default
     resolver = app.config.get("MCP_USER_RESOLVER", default_user_resolver)
     username = resolver(app, access_token)
 
@@ -215,10 +223,15 @@ def _resolve_user_from_jwt_context(app: Any) -> User | None:
             "JWT context present but no username could be extracted from claims"
         )
 
-    # Try username lookup first, then email fallback for OIDC email claims
-    user = load_user_with_relationships(username)
-    if not user and "@" in username:
+    # Identity-provider tokens resolve to a Superset user by email.
+    # Other resolvers keep Apache's username lookup, then email when the
+    # claim itself contains "@".
+    if resolver is idp_email_user_resolver:
         user = load_user_with_relationships(email=username)
+    else:
+        user = load_user_with_relationships(username)
+        if not user and "@" in username:
+            user = load_user_with_relationships(email=username)
     if not user:
         # Fail closed: JWT says this user should exist but they don't.
         # Do NOT fall through to MCP_DEV_USERNAME or stale g.user.
@@ -414,7 +427,20 @@ def check_chart_data_access(chart: Any) -> "DatasetValidationResult":
     return validate_chart_dataset(chart, check_access=True)
 
 
-def _setup_user_context() -> User | None:
+def _reject_if_inactive(user: User | None) -> None:
+    """Raise ``ValueError`` if the resolved user account is deactivated.
+
+    A still-valid JWT must not grant MCP access to a user whose account has
+    been disabled. This mirrors Flask-Login's ``is_active`` check for web
+    sessions, which the MCP auth path does not otherwise go through.
+    """
+    if user is not None and not (
+        getattr(user, "is_active", True) and getattr(user, "active", True)
+    ):
+        raise ValueError("User account is disabled")
+
+
+def _setup_user_context() -> User | None:  # noqa: C901
     """
     Set up user context for MCP tool execution.
 
@@ -439,25 +465,8 @@ def _setup_user_context() -> User | None:
 
     for attempt in range(2):
         try:
-            try:
-                user = get_user_from_request()
-            except ValueError as e:
-                # JWT user resolution failed (e.g. SAML subject not in DB).
-                # If middleware already set g.user (request context exists),
-                # use that instead of failing closed.
-                if has_request_context() and hasattr(g, "user") and g.user:
-                    logger.warning(
-                        "JWT user resolution failed (%s), "
-                        "using middleware-provided g.user=%s",
-                        e,
-                        g.user.username,
-                    )
-                    # Assign to local so relationship validation below runs
-                    # (same as the normal path) to prevent detached instance
-                    # errors.
-                    user = g.user
-                else:
-                    raise
+            user = get_user_from_request()
+            _reject_if_inactive(user)
 
             # Validate user has necessary relationships loaded.
             # Force access to ensure they're loaded if lazy.
@@ -492,6 +501,19 @@ def _setup_user_context() -> User | None:
             logger.error("DB connection failed on retry during user setup: %s", e)
             _cleanup_session_on_error()
             raise
+        except ValueError as e:
+            # User resolution failed — fail closed. Do not fall back to
+            # g.user or MCP_DEV_USERNAME when a JWT is present but cannot
+            # be resolved to a Superset user.
+            # Clear g.user so error/audit logging doesn't attribute
+            # the denied request to the middleware-provided identity.
+            logger.error("MCP user resolution failed, denying request: %s", e)
+            if has_request_context():
+                g.pop("user", None)
+            raise
+
+    if user is None:
+        raise ValueError("No authenticated user found")
 
     g.user = user
     return user
