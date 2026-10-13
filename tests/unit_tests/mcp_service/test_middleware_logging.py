@@ -344,6 +344,7 @@ class TestMiddlewareChainOrder:
         # If it's not outermost, the exception would leak to the MCP SDK.
         assert isinstance(result, ToolResult)
         assert result.content[0].text.startswith("Error:")
+        assert result.to_mcp_result().isError is True
 
         # LoggingMiddleware must log
         # success=False. If the middleware order is wrong

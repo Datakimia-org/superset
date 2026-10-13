@@ -138,8 +138,11 @@ class LoggingMiddleware(Middleware):
         an "error_type" field.
         """
         try:
+            mcp_result = result.to_mcp_result()
+            if getattr(mcp_result, "isError", False):
+                return True
             return '"error_type"' in result.content[0].text
-        except (AttributeError, IndexError):
+        except (AttributeError, IndexError, TypeError):
             return False
 
     def _extract_context_info(
@@ -277,6 +280,18 @@ class PrivateToolMiddleware(Middleware):
         return await call_next(context)
 
 
+class _ErrorToolResult(ToolResult):
+    """Tool failure that serializes as ``CallToolResult(isError=True)``.
+
+    FastMCP 3.1 ``ToolResult`` has no error flag. ``to_mcp_result`` on a
+    content-only result returns a content list, which clients treat as
+    success. ``structured_content`` stays unset so the wire payload is text.
+    """
+
+    def to_mcp_result(self) -> mt.CallToolResult:
+        return mt.CallToolResult(content=self.content, isError=True)
+
+
 class StructuredContentStripperMiddleware(Middleware):
     """Strip ``outputSchema`` and ``structured_content`` to prevent encoding errors.
 
@@ -317,15 +332,10 @@ class StructuredContentStripperMiddleware(Middleware):
         try:
             result = await call_next(context)
         except Exception as e:
-            # When exceptions propagate past the middleware chain to the
-            # MCP SDK layer, they become CallToolResult(isError=True).
-            # Some transports (Claude.ai's MCP bridge) cannot encode these
-            # error responses, producing "encoding without a string argument".
-            # Catch ALL exceptions (not just specific types) because any
-            # unhandled exception — including ToolError from
-            # GlobalErrorHandlerMiddleware, ValueError, TypeError, etc. —
-            # will cause encoding failures on the wire.
-            return ToolResult(
+            # Keep the failure as text with structured_content unset. Flag
+            # isError so clients do not treat the call as a success. A bare
+            # content list from ToolResult.to_mcp_result is a success.
+            return _ErrorToolResult(
                 content=[mt.TextContent(type="text", text=f"Error: {e}")],
             )
         if isinstance(result, ToolResult) and result.structured_content is not None:
