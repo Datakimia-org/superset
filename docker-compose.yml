@@ -213,7 +213,6 @@ services:
     # mem_reservation: 128M
 
   superset-mcp:
-    image: superset-superset:latest
     build:
       <<: *common-build
     command: ["/app/docker/docker-bootstrap.sh", "mcp"]
@@ -225,7 +224,7 @@ services:
     environment:
       MCP_DEV_USERNAME: ${MCP_DEV_USERNAME:-admin}
       MCP_PORT: "5008"
-      SUPERSET_WEBSERVER_ADDRESS: http://localhost:${SUPERSET_PORT:-8088}
+      WEBDRIVER_BASEURL_USER_FRIENDLY: http://localhost:${SUPERSET_PORT:-8088}/
     ports:
       - "127.0.0.1:${MCP_PORT:-5008}:5008"
     restart: unless-stopped

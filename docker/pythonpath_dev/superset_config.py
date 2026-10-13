@@ -486,7 +486,3 @@ if _mcp_dev_username:
     MCP_DEV_USERNAME = _mcp_dev_username
     MCP_SERVICE_HOST = os.getenv("MCP_SERVICE_HOST", "0.0.0.0")
     MCP_SERVICE_PORT = int(os.getenv("MCP_PORT", "5008"))
-    SUPERSET_WEBSERVER_ADDRESS = os.getenv(
-        "SUPERSET_WEBSERVER_ADDRESS",
-        "http://localhost:8088",
-    )

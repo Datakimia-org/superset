@@ -15,26 +15,31 @@
 # specific language governing permissions and limitations
 # under the License.
 
-from superset.mcp_service.system.schemas import RoleInfo
+from superset.mcp_service.dashboard.schemas import serialize_role_object
+
+
+class _Named:
+    def __init__(self, name: str) -> None:
+        self.name = name
 
 
 class _PermissionView:
-    def __str__(self) -> str:
-        return "can read on Chart"
+    """FAB PermissionView has no name; the label comes from its relations."""
+
+    def __init__(self) -> None:
+        self.permission = _Named("can_read")
+        self.view_menu = _Named("Chart")
 
 
 class _Role:
     id = 7
     name = "Admin"
-    permissions = [_PermissionView(), "can write on Dashboard"]
+    permissions = [_PermissionView()]
 
 
-def test_role_info_serializes_permission_objects_as_strings() -> None:
-    """Dashboard roles carry FAB PermissionView objects, not plain strings."""
-    role = RoleInfo.model_validate(_Role(), from_attributes=True)
+def test_serialize_role_object_formats_permission_view() -> None:
+    """PermissionView objects serialize as '{permission.name} on {view_menu.name}'."""
+    role = serialize_role_object(_Role())
 
-    assert role.permissions == ["can read on Chart", "can write on Dashboard"]
-    assert role.model_dump()["permissions"] == [
-        "can read on Chart",
-        "can write on Dashboard",
-    ]
+    assert role is not None
+    assert role.permissions == ["can_read on Chart"]

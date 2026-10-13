@@ -134,17 +134,39 @@ def serialize_tag_object(tag: Any) -> TagInfo | None:
     )
 
 
+def _serialize_permission_name(permission: Any) -> str | None:
+    """Use a direct name, or FAB permission.name plus view_menu.name."""
+    if (name := getattr(permission, "name", None)) is not None:
+        return str(name)
+
+    permission_name = getattr(getattr(permission, "permission", None), "name", None)
+    view_menu_name = getattr(getattr(permission, "view_menu", None), "name", None)
+    if permission_name and view_menu_name:
+        return f"{permission_name} on {view_menu_name}"
+
+    return None
+
+
 def serialize_role_object(role: Any) -> RoleInfo | None:
     """Serialize a role object to RoleInfo"""
     if not role:
         return None
 
+    raw_permissions = (
+        getattr(role, "permissions", None) if hasattr(role, "permissions") else None
+    )
+    permissions = None
+    if raw_permissions is not None:
+        permissions = [
+            permission_name
+            for permission in raw_permissions
+            if (permission_name := _serialize_permission_name(permission)) is not None
+        ]
+
     return RoleInfo(
         id=getattr(role, "id", None),
         name=getattr(role, "name", None),
-        permissions=[str(perm) for perm in getattr(role, "permissions", [])]
-        if hasattr(role, "permissions")
-        else None,
+        permissions=permissions,
     )
 
 
@@ -712,8 +734,9 @@ def dashboard_serializer(dashboard: "Dashboard") -> DashboardInfo:
         if dashboard.tags
         else [],
         roles=[
-            RoleInfo.model_validate(role, from_attributes=True)
+            info
             for role in dashboard.roles
+            if (info := serialize_role_object(role)) is not None
         ]
         if dashboard.roles
         else [],
@@ -794,8 +817,9 @@ def serialize_dashboard_object(dashboard: Any) -> DashboardInfo:
         if getattr(dashboard, "tags", None)
         else [],
         roles=[
-            RoleInfo.model_validate(role, from_attributes=True)
+            info
             for role in getattr(dashboard, "roles", [])
+            if (info := serialize_role_object(role)) is not None
         ]
         if getattr(dashboard, "roles", None)
         else [],
