@@ -212,6 +212,32 @@ services:
     # mem_limit: 2038m
     # mem_reservation: 128M
 
+  superset-mcp:
+    build:
+      <<: *common-build
+    command: ["/app/docker/docker-bootstrap.sh", "mcp"]
+    env_file:
+      - path: docker/.env # default
+        required: true
+      - path: docker/.env-local # optional override
+        required: false
+    environment:
+      MCP_DEV_USERNAME: ${MCP_DEV_USERNAME:-admin}
+      MCP_PORT: "5008"
+      WEBDRIVER_BASEURL_USER_FRIENDLY: http://localhost:${SUPERSET_PORT:-8088}/
+    ports:
+      - "127.0.0.1:${MCP_PORT:-5008}:5008"
+    restart: unless-stopped
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
+    user: *superset-user
+    volumes: *superset-volumes
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      disable: true
+
   superset-worker-beat:
     build:
       <<: *common-build

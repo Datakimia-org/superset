@@ -101,6 +101,7 @@ BASE_WEBSOCKET=8080
 BASE_CYPRESS=8081
 BASE_DATABASE=5432
 BASE_REDIS=6379
+BASE_MCP=5008
 
 # Find available ports (no subshells - claims persist correctly)
 echo "🔍 Finding available ports..."
@@ -111,6 +112,7 @@ find_and_claim_port $BASE_WEBSOCKET WEBSOCKET_PORT
 find_and_claim_port $BASE_CYPRESS CYPRESS_PORT
 find_and_claim_port $BASE_DATABASE DATABASE_PORT
 find_and_claim_port $BASE_REDIS REDIS_PORT
+find_and_claim_port $BASE_MCP MCP_PORT
 
 # Export for docker-compose
 export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
@@ -138,6 +140,7 @@ if docker compose ps --status running 2>/dev/null | grep -q "$PROJECT_NAME"; the
     WEBSOCKET_PORT=$(get_running_port superset-websocket 8080 $WEBSOCKET_PORT)
     DATABASE_PORT=$(get_running_port db 5432 $DATABASE_PORT)
     REDIS_PORT=$(get_running_port redis 6379 $REDIS_PORT)
+    MCP_PORT=$(get_running_port superset-mcp 5008 $MCP_PORT)
 fi
 
 export NGINX_PORT
@@ -147,6 +150,7 @@ export WEBSOCKET_PORT
 export CYPRESS_PORT
 export DATABASE_PORT
 export REDIS_PORT
+export MCP_PORT
 
 # Function to print connection info
 print_connection_info() {
@@ -158,6 +162,7 @@ print_connection_info() {
     echo "   WebSocket:  localhost:$WEBSOCKET_PORT"
     echo "   Database:   localhost:$DATABASE_PORT"
     echo "   Redis:      localhost:$REDIS_PORT"
+    echo "   MCP:        http://localhost:$MCP_PORT/mcp"
     echo ""
 }
 
@@ -191,6 +196,7 @@ case "${1:-}" in
         echo "export CYPRESS_PORT=$CYPRESS_PORT"
         echo "export DATABASE_PORT=$DATABASE_PORT"
         echo "export REDIS_PORT=$REDIS_PORT"
+        echo "export MCP_PORT=$MCP_PORT"
         exit 0
         ;;
     ports)

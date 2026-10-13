@@ -477,3 +477,12 @@ else:
             logger.warning("BigQuery engine caching optimization was not applied")
 
     FLASK_APP_MUTATOR = datakimia_flask_app_mutator
+
+# MCP is off unless the process has MCP_DEV_USERNAME (the compose MCP service sets it).
+# Client environments leave the variable unset, so this stays disabled there.
+_mcp_dev_username = os.getenv("MCP_DEV_USERNAME", "").strip()
+if _mcp_dev_username:
+    MCP_AUTH_ENABLED = False
+    MCP_DEV_USERNAME = _mcp_dev_username
+    MCP_SERVICE_HOST = os.getenv("MCP_SERVICE_HOST", "0.0.0.0")
+    MCP_SERVICE_PORT = int(os.getenv("MCP_PORT", "5008"))
