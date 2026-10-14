@@ -496,8 +496,8 @@ def test_idp_resolver_looks_up_superset_user_by_email(app) -> None:
             "preferred_username": "not-alice",
             "sub": "opaque",
         }
-        # Azure Entra does not emit email_verified. Google and Auth0 must.
-        if "microsoftonline.com" not in issuer:
+        # Google ID tokens carry email_verified. Auth0 and Azure may not.
+        if issuer == "https://accounts.google.com":
             claims["email_verified"] = True
         token = _make_access_token(claims=claims)
 
@@ -608,22 +608,30 @@ def test_idp_resolver_rejects_unknown_email(app) -> None:
             app.config.pop("MCP_USER_RESOLVER", None)
 
 
-def test_idp_resolver_rejects_unverified_google_and_auth0_email(app) -> None:
-    """Google and Auth0 must set email_verified to true."""
-    issuers = (
-        "https://accounts.google.com",
-        "https://tenant.auth0.com/",
-    )
-    for issuer in issuers:
-        for verified in (False, None, "true"):
-            claims: dict[str, object] = {
-                "iss": issuer,
-                "email": "alice@example.com",
-            }
-            if verified is not None:
-                claims["email_verified"] = verified
-            with pytest.raises(ValueError, match="not verified"):
-                idp_email_user_resolver(app, _make_access_token(claims=claims))
+def test_idp_resolver_rejects_unverified_google_email(app) -> None:
+    """Google must set email_verified to true. Auth0 is not gated on it."""
+    for verified in (False, None, "true"):
+        claims: dict[str, object] = {
+            "iss": "https://accounts.google.com",
+            "email": "alice@example.com",
+        }
+        if verified is not None:
+            claims["email_verified"] = verified
+        with pytest.raises(ValueError, match="not verified"):
+            idp_email_user_resolver(app, _make_access_token(claims=claims))
+
+    for verified in (False, None):
+        claims = {
+            "iss": "https://tenant.auth0.com/",
+            "email": "alice@example.com",
+            "email_verified": verified,
+        }
+        if verified is None:
+            del claims["email_verified"]
+        assert (
+            idp_email_user_resolver(app, _make_access_token(claims=claims))
+            == "alice@example.com"
+        )
 
 
 def test_idp_resolver_does_not_use_preferred_username_for_google(app) -> None:
@@ -651,8 +659,8 @@ def test_idp_resolver_accepts_azure_mailbox_claims_without_email_verified(
         assert idp_email_user_resolver(app, token) == "alice@contoso.com"
 
 
-def test_idp_resolver_rejects_azure_guest_upn_and_explicit_unverified(app) -> None:
-    """Guest UPNs and an explicit email_verified false do not match a user."""
+def test_idp_resolver_rejects_azure_guest_upn(app) -> None:
+    """Guest UPNs are not a Superset login. email_verified is ignored."""
     issuer = (
         "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0"
     )
@@ -672,5 +680,4 @@ def test_idp_resolver_rejects_azure_guest_upn_and_explicit_unverified(app) -> No
             "email_verified": False,
         }
     )
-    with pytest.raises(ValueError, match="not verified"):
-        idp_email_user_resolver(app, unverified)
+    assert idp_email_user_resolver(app, unverified) == "alice@contoso.com"
