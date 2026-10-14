@@ -32,7 +32,7 @@ import logging
 from contextlib import AbstractContextManager
 from typing import Any, Callable, TYPE_CHECKING, TypeVar
 
-from flask import g
+from flask import g, has_request_context
 from flask_appbuilder.security.sqla.models import Group, User
 
 if TYPE_CHECKING:
@@ -173,13 +173,153 @@ def load_user_with_relationships(
     return query.first()
 
 
+def _resolve_user_from_jwt_context(app: Any) -> User | None:
+    """
+    Resolve the current user from the MCP SDK's per-request JWT context.
+
+    Uses FastMCP's ``get_access_token()`` which returns the JWT AccessToken
+    for the current async task via a ContextVar — safe across concurrent
+    requests, unlike ``g.user`` which can be stale.
+
+    The username is extracted from token claims using a configurable resolver
+    (``MCP_USER_RESOLVER`` config) or the default ``default_user_resolver()``.
+
+    Returns:
+        User object with relationships loaded, or None if no JWT context
+        (i.e. no token present — caller should fall through to next source).
+
+    Raises:
+        ValueError: If JWT resolves a username that doesn't exist in the DB
+            (fail closed — do NOT fall through to weaker auth sources).
+    """
+    try:
+        from fastmcp.server.dependencies import get_access_token
+    except ImportError:
+        logger.debug("fastmcp.server.dependencies not available, skipping JWT context")
+        return None
+
+    access_token = get_access_token()
+    if access_token is None:
+        return None
+
+    # Multi-issuer configs without an issuer-aware MCP_USER_RESOLVER fail
+    # closed. Single-issuer deployments are unchanged.
+    from superset.mcp_service.mcp_config import (
+        default_user_resolver,
+        idp_email_user_resolver,
+        validate_multi_issuer_user_resolver,
+    )
+
+    validate_multi_issuer_user_resolver(app)
+
+    # Use configurable resolver or default
+    resolver = app.config.get("MCP_USER_RESOLVER", default_user_resolver)
+    username = resolver(app, access_token)
+
+    if not username:
+        # Fail closed: JWT is present but identity cannot be determined.
+        # Do NOT fall through to weaker auth sources.
+        raise ValueError(
+            "JWT context present but no username could be extracted from claims"
+        )
+
+    # Identity-provider tokens resolve to a Superset user by email.
+    # Other resolvers keep Apache's username lookup, then email when the
+    # claim itself contains "@".
+    if resolver is idp_email_user_resolver:
+        user = load_user_with_relationships(email=username)
+    else:
+        user = load_user_with_relationships(username)
+        if not user and "@" in username:
+            user = load_user_with_relationships(email=username)
+    if not user:
+        # Fail closed: JWT says this user should exist but they don't.
+        # Do NOT fall through to MCP_DEV_USERNAME or stale g.user.
+        raise ValueError(
+            f"JWT authenticated user '{username}' not found in Superset database. "
+            f"Ensure the user exists before granting MCP access."
+        )
+
+    return user
+
+
+def _resolve_user_from_api_key(app: Any) -> User | None:
+    """
+    Resolve the current user from an API key in the Authorization header.
+
+    Uses FAB SecurityManager's API key validation. Only attempts when
+    FAB_API_KEY_ENABLED is True and a request context is active.
+
+    Returns:
+        User object with relationships loaded, or None if no API key present
+        or API key auth is not enabled/available.
+
+    Raises:
+        PermissionError: If an API key is present but invalid/expired,
+            or if validation is not available in this FAB version.
+    """
+    if not app.config.get("FAB_API_KEY_ENABLED", False) or not has_request_context():
+        return None
+
+    sm = app.appbuilder.sm
+    # _extract_api_key_from_request is FAB's internal method for reading
+    # the Bearer token from the Authorization header and matching prefixes.
+    # Not all FAB versions include this method, so guard with hasattr.
+    if not hasattr(sm, "_extract_api_key_from_request"):
+        logger.debug(
+            "FAB SecurityManager does not have _extract_api_key_from_request; "
+            "API key authentication is not available in this FAB version"
+        )
+        return None
+
+    api_key_string = sm._extract_api_key_from_request()
+    if api_key_string is None:
+        return None
+
+    if not hasattr(sm, "validate_api_key"):
+        logger.warning(
+            "FAB SecurityManager does not have validate_api_key; "
+            "cannot validate API key"
+        )
+        raise PermissionError(
+            "API key validation is not available in this FAB version."
+        )
+
+    user = sm.validate_api_key(api_key_string)
+    if not user:
+        raise PermissionError(
+            "Invalid or expired API key. "
+            "Create a new key at /api/v1/security/api_keys/."
+        )
+
+    # Reload user with all relationships eagerly loaded to avoid
+    # detached-instance errors during later permission checks.
+    user_with_rels = load_user_with_relationships(username=user.username)
+    if user_with_rels is None:
+        logger.warning(
+            "Failed to reload API key user %s with relationships; "
+            "using original user object which may have lazy-loaded "
+            "relationships",
+            user.username,
+        )
+        return user
+    return user_with_rels
+
+
 def get_user_from_request() -> User:
     """
     Get the current user for the MCP tool request.
 
     Priority order:
-    1. g.user if already set (by Preset workspace middleware)
-    2. MCP_DEV_USERNAME from configuration (for development/testing)
+    1. JWT auth context (per-request ContextVar from MCP SDK) — safest
+    2. API key from Authorization header (via FAB SecurityManager)
+    3. MCP_DEV_USERNAME from configuration (for development/testing)
+    4. g.user fallback (for external middleware like Preset's
+       WorkspaceContextMiddleware that sets g.user fresh per request)
+
+    This ordering prevents stale ``g.user`` from a previous tool call
+    from being used in open-source deployments where no middleware
+    refreshes ``g.user`` per request.
 
     Returns:
         User object with roles and groups eagerly loaded
@@ -189,44 +329,51 @@ def get_user_from_request() -> User:
     """
     from flask import current_app
 
-    # First check if user is already set by Preset workspace middleware
+    # Priority 1: JWT context (per-request safe via ContextVar)
+    if (jwt_user := _resolve_user_from_jwt_context(current_app)) is not None:
+        return jwt_user
+
+    # Priority 2: API key authentication via FAB SecurityManager
+    if (api_key_user := _resolve_user_from_api_key(current_app)) is not None:
+        return api_key_user
+
+    # Priority 3: Configured dev username for development/single-user deployments
+    if username := current_app.config.get("MCP_DEV_USERNAME"):
+        user = load_user_with_relationships(username)
+        if not user:
+            raise ValueError(
+                f"User '{username}' not found. "
+                f"Please create admin user with: superset fab create-admin"
+            )
+        return user
+
+    # Priority 4: g.user fallback (set by external middleware, e.g. Preset)
     if hasattr(g, "user") and g.user:
         return g.user
 
-    # Fall back to configured username for development/single-user deployments
-    username = current_app.config.get("MCP_DEV_USERNAME")
-
-    if not username:
-        auth_enabled = current_app.config.get("MCP_AUTH_ENABLED", False)
-        jwt_configured = bool(
-            current_app.config.get("MCP_JWKS_URI")
-            or current_app.config.get("MCP_JWT_PUBLIC_KEY")
-            or current_app.config.get("MCP_JWT_SECRET")
-        )
-        details = []
-        details.append(
-            f"g.user was not set by JWT middleware "
-            f"(MCP_AUTH_ENABLED={auth_enabled}, "
-            f"JWT keys configured={jwt_configured})"
-        )
-        details.append("MCP_DEV_USERNAME is not configured")
-        raise ValueError(
-            "No authenticated user found. Tried:\n"
-            + "\n".join(f"  - {d}" for d in details)
-            + "\n\nEither pass a valid JWT bearer token or configure "
-            "MCP_DEV_USERNAME for development."
-        )
-
-    # Use helper function to load user with all required relationships
-    user = load_user_with_relationships(username)
-
-    if not user:
-        raise ValueError(
-            f"User '{username}' not found. "
-            f"Please create admin user with: superset fab create-admin"
-        )
-
-    return user
+    # No auth source available — raise with diagnostic details
+    auth_enabled = current_app.config.get("MCP_AUTH_ENABLED", False)
+    jwt_configured = bool(
+        current_app.config.get("MCP_JWKS_URI")
+        or current_app.config.get("MCP_JWT_PUBLIC_KEY")
+        or current_app.config.get("MCP_JWT_SECRET")
+    )
+    details = [
+        f"No JWT access token in MCP request context "
+        f"(MCP_AUTH_ENABLED={auth_enabled}, "
+        f"JWT keys configured={jwt_configured})",
+        "No API key in Authorization header",
+        "MCP_DEV_USERNAME is not configured",
+        "g.user was not set by external middleware",
+    ]
+    configured_prefixes = current_app.config.get("FAB_API_KEY_PREFIXES", ["sst_"])
+    prefix_example = configured_prefixes[0] if configured_prefixes else "sst_"
+    raise ValueError(
+        "No authenticated user found. Tried:\n"
+        + "\n".join(f"  - {d}" for d in details)
+        + f"\n\nEither pass a valid API key (Bearer {prefix_example}...), "
+        "JWT token, or configure MCP_DEV_USERNAME for development."
+    )
 
 
 def has_dataset_access(dataset: "SqlaTable") -> bool:
@@ -280,7 +427,20 @@ def check_chart_data_access(chart: Any) -> "DatasetValidationResult":
     return validate_chart_dataset(chart, check_access=True)
 
 
-def _setup_user_context() -> User | None:
+def _reject_if_inactive(user: User | None) -> None:
+    """Raise ``ValueError`` if the resolved user account is deactivated.
+
+    A still-valid JWT must not grant MCP access to a user whose account has
+    been disabled. This mirrors Flask-Login's ``is_active`` check for web
+    sessions, which the MCP auth path does not otherwise go through.
+    """
+    if user is not None and not (
+        getattr(user, "is_active", True) and getattr(user, "active", True)
+    ):
+        raise ValueError("User account is disabled")
+
+
+def _setup_user_context() -> User | None:  # noqa: C901
     """
     Set up user context for MCP tool execution.
 
@@ -296,17 +456,17 @@ def _setup_user_context() -> User | None:
     # Only clear in app-context-only mode; preserve g.user when
     # a request context is active (external middleware set it).
     from flask import has_request_context
+    from sqlalchemy.exc import OperationalError
 
     if not has_request_context():
         g.pop("user", None)
-
-    from sqlalchemy.exc import OperationalError
 
     user = None  # Ensure defined before loop in case of unexpected exit
 
     for attempt in range(2):
         try:
             user = get_user_from_request()
+            _reject_if_inactive(user)
 
             # Validate user has necessary relationships loaded.
             # Force access to ensure they're loaded if lazy.
@@ -319,6 +479,8 @@ def _setup_user_context() -> User | None:
             break
         except RuntimeError as e:
             # No Flask application context (e.g., prompts before middleware runs)
+            # This is expected for some FastMCP operations - return None
+            # gracefully
             if "application context" in str(e):
                 logger.debug("No Flask app context available for user setup")
                 return None
@@ -341,14 +503,17 @@ def _setup_user_context() -> User | None:
             raise
         except ValueError as e:
             # User resolution failed — fail closed. Do not fall back to
-            # g.user from middleware, as that could allow a request to
-            # proceed as a different user in multi-tenant deployments.
+            # g.user or MCP_DEV_USERNAME when a JWT is present but cannot
+            # be resolved to a Superset user.
             # Clear g.user so error/audit logging doesn't attribute
             # the denied request to the middleware-provided identity.
             logger.error("MCP user resolution failed, denying request: %s", e)
             if has_request_context():
                 g.pop("user", None)
             raise
+
+    if user is None:
+        raise ValueError("No authenticated user found")
 
     g.user = user
     return user
