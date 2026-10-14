@@ -25,6 +25,7 @@ import pytest
 from fastmcp.server.auth import MultiAuth
 
 from superset.mcp_service.mcp_config import (
+    _bind_id_token_verifier,
     create_default_mcp_auth_factory,
     idp_email_user_resolver,
     MCPAuthConfigError,
@@ -111,7 +112,7 @@ def test_oauth_server_is_configurable_for_claude_metadata() -> None:
     )
     sentinel = SimpleNamespace(
         base_url="https://mcp.example.com",
-        required_scopes=None,
+        required_scopes=["openid", "email", "profile"],
         set_mcp_path=lambda path: None,
         get_routes=lambda mcp_path=None: ["oauth-route"],
         get_well_known_routes=lambda mcp_path=None: ["oauth-protected-resource"],
@@ -126,11 +127,51 @@ def test_oauth_server_is_configurable_for_claude_metadata() -> None:
     oidc.assert_called_once()
     assert oidc.call_args.kwargs["config_url"].endswith("openid-configuration")
     assert oidc.call_args.kwargs["audience"] == "api://superset"
+    assert oidc.call_args.kwargs["verify_id_token"] is True
+    assert oidc.call_args.kwargs["required_scopes"] == [
+        "openid",
+        "email",
+        "profile",
+        "offline_access",
+    ]
     assert isinstance(provider, MultiAuth)
     assert provider.server is sentinel
+    # Claude's identity scopes must not become a global gate for direct bearers.
+    assert provider.required_scopes == []
     assert provider.get_well_known_routes() == ["oauth-protected-resource"]
     google_issuers = [verifier.issuer for verifier in provider.verifiers]
     assert "https://accounts.google.com" in google_issuers
+
+
+def test_google_claude_login_does_not_send_audience_param() -> None:
+    app = _app(
+        MCP_AUTH_ENABLED=True,
+        MCP_JWT_AUDIENCE="api://superset",
+        MCP_GOOGLE_JWT_ENABLED=False,
+        MCP_OAUTH_PROVIDER="oidc",
+        MCP_OAUTH_CONFIG_URL="https://accounts.google.com/.well-known/openid-configuration",
+        MCP_OAUTH_CLIENT_ID="google-client",
+        MCP_OAUTH_CLIENT_SECRET="client-secret",  # noqa: S106
+        MCP_OAUTH_BASE_URL="https://mcp.example.com",
+    )
+    sentinel = SimpleNamespace(
+        base_url="https://mcp.example.com",
+        required_scopes=["openid", "email", "profile"],
+        set_mcp_path=lambda path: None,
+        get_routes=lambda mcp_path=None: [],
+        get_well_known_routes=lambda mcp_path=None: [],
+    )
+
+    with patch(
+        "fastmcp.server.auth.oidc_proxy.OIDCProxy",
+        return_value=sentinel,
+    ) as oidc:
+        create_default_mcp_auth_factory(app)
+
+    assert "audience" not in oidc.call_args.kwargs
+    assert oidc.call_args.kwargs["verify_id_token"] is True
+    assert oidc.call_args.kwargs["required_scopes"] == ["openid", "email", "profile"]
+    assert oidc.call_args.kwargs["extra_authorize_params"] == {"access_type": "offline"}
 
 
 def test_auth0_provider_selected_by_environment() -> None:
@@ -146,7 +187,7 @@ def test_auth0_provider_selected_by_environment() -> None:
     )
     sentinel = SimpleNamespace(
         base_url="https://mcp.example.com",
-        required_scopes=None,
+        required_scopes=["openid"],
         set_mcp_path=lambda path: None,
     )
 
@@ -157,9 +198,37 @@ def test_auth0_provider_selected_by_environment() -> None:
         provider = create_default_mcp_auth_factory(app)
 
     auth0.assert_called_once()
+    assert auth0.call_args.kwargs["audience"] == "api://superset"
+    assert auth0.call_args.kwargs["required_scopes"] == [
+        "openid",
+        "email",
+        "profile",
+        "offline_access",
+    ]
     assert isinstance(provider, MultiAuth)
     assert provider.server is sentinel
+    assert provider.required_scopes == []
     assert provider.verifiers == []
+
+
+def test_auth0_claude_login_verifies_id_token() -> None:
+    oidc_config = SimpleNamespace(
+        jwks_uri="https://tenant.auth0.com/.well-known/jwks.json",
+        issuer="https://tenant.auth0.com/",
+    )
+    provider = SimpleNamespace(
+        oidc_config=oidc_config,
+        _token_validator=None,
+        _verify_id_token=False,
+    )
+
+    bound = _bind_id_token_verifier(provider, "auth0-client")
+
+    assert bound._verify_id_token is True
+    assert bound._token_validator.audience == "auth0-client"
+    assert bound._token_validator.issuer == "https://tenant.auth0.com/"
+    assert bound._token_validator.algorithm == "RS256"
+    assert bound._token_validator.required_scopes == []
 
 
 def test_create_auth_provider_propagates_config_error() -> None:

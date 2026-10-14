@@ -499,12 +499,75 @@ def _idp_jwt_verifiers(app: Flask, *, audience: str) -> tuple[list[Any], list[st
     return verifiers, issuers
 
 
+# Scopes Claude must receive an ID token for. ``idp_email_user_resolver``
+# reads ``iss`` and ``email`` from that token. Access tokens from Google are
+# opaque, so verifying them with JWTVerifier never yields those claims.
+_CLAUDE_IDENTITY_SCOPES = ("openid", "email", "profile")
+
+
+def _oauth_upstream_kind(config_url: str) -> str:
+    """Classify the upstream issuer from its discovery URL host."""
+    from urllib.parse import urlparse
+
+    host = (urlparse(config_url).hostname or "").lower()
+    if host == "accounts.google.com" or host.endswith(".google.com"):
+        return "google"
+    if host.endswith(".microsoftonline.com") or host.endswith(".windows.net"):
+        return "microsoft"
+    return "oidc"
+
+
+def _claude_login_scopes(upstream_kind: str) -> list[str]:
+    """Scopes advertised to Claude and requested from the identity provider.
+
+    Google refresh tokens come from ``access_type=offline``. Sending
+    ``offline_access`` as a scope makes Google reject the authorize redirect.
+    Auth0 and Azure Entra issue a refresh token when that scope is requested,
+    and Claude adds it only when ``scopes_supported`` lists it.
+    """
+    scopes = list(_CLAUDE_IDENTITY_SCOPES)
+    if upstream_kind != "google":
+        scopes.append("offline_access")
+    return scopes
+
+
+def _bind_id_token_verifier(provider: Any, client_id: str) -> Any:
+    """Verify the upstream ID token when the provider cannot be told to.
+
+    ``Auth0Provider`` does not accept ``verify_id_token``. Its default
+    verifier checks the API access token, which often has no ``email``
+    claim. Claude's session is the ID token: audience is the OAuth client
+    id (OIDC Core), and ``idp_email_user_resolver`` reads ``iss`` and
+    ``email`` from the claims ``JWTVerifier`` already returns.
+    """
+    oidc_config = getattr(provider, "oidc_config", None)
+    if oidc_config is None or not hasattr(provider, "_token_validator"):
+        return provider
+
+    from fastmcp.server.auth.providers.jwt import JWTVerifier
+
+    issuer = getattr(oidc_config, "issuer", None)
+    provider._verify_id_token = True
+    provider._token_validator = JWTVerifier(
+        jwks_uri=str(oidc_config.jwks_uri),
+        issuer=str(issuer) if issuer else None,
+        audience=client_id,
+        algorithm="RS256",
+    )
+    return provider
+
+
 def _oauth_authorization_server(app: Flask, *, audience: str) -> Any | None:
     """Authorization server that publishes OAuth metadata for Claude.
 
     ``JWTVerifier`` only checks a Bearer token. Claude discovers
     ``/.well-known/oauth-protected-resource`` and follows the authorization
     redirect, which FastMCP serves from ``Auth0Provider`` or ``OIDCProxy``.
+
+    The proxy then swaps Claude's token for the upstream ID token. That is
+    the token ``idp_email_user_resolver`` maps to a Superset user. Redirect
+    URIs stay unrestricted so Claude's fixed callback and Claude Code's
+    loopback port are both accepted.
     """
     provider = str(app.config.get("MCP_OAUTH_PROVIDER") or "").strip().lower()
     config_url = app.config.get("MCP_OAUTH_CONFIG_URL")
@@ -529,27 +592,43 @@ def _oauth_authorization_server(app: Flask, *, audience: str) -> Any | None:
             "MCP OAuth authorization server is missing: " + ", ".join(missing)
         )
 
+    config_url_str = str(config_url)
+    client_id_str = str(client_id)
+    upstream_kind = _oauth_upstream_kind(config_url_str)
+    login_scopes = _claude_login_scopes(upstream_kind)
+
     if provider in {"", "oidc"}:
         from fastmcp.server.auth.oidc_proxy import OIDCProxy
 
-        return OIDCProxy(
-            config_url=str(config_url),
-            client_id=str(client_id),
-            client_secret=str(client_secret),
-            audience=audience,
-            base_url=str(base_url),
-            algorithm="RS256",
-        )
+        oidc_kwargs: dict[str, Any] = {
+            "config_url": config_url_str,
+            "client_id": client_id_str,
+            "client_secret": str(client_secret),
+            "base_url": str(base_url),
+            "algorithm": "RS256",
+            "required_scopes": login_scopes,
+            "verify_id_token": True,
+        }
+        # Google and Azure Entra reject ``audience`` on the authorize
+        # redirect. Auth0 and other OIDC servers use it to select the API.
+        # The ID token audience is still the OAuth client id.
+        if upstream_kind == "oidc":
+            oidc_kwargs["audience"] = audience
+        if upstream_kind == "google":
+            oidc_kwargs["extra_authorize_params"] = {"access_type": "offline"}
+        return OIDCProxy(**oidc_kwargs)
     if provider == "auth0":
         from fastmcp.server.auth.providers.auth0 import Auth0Provider
 
-        return Auth0Provider(
-            config_url=str(config_url),
-            client_id=str(client_id),
+        auth0_provider = Auth0Provider(
+            config_url=config_url_str,
+            client_id=client_id_str,
             client_secret=str(client_secret),
             audience=audience,
             base_url=str(base_url),
+            required_scopes=login_scopes,
         )
+        return _bind_id_token_verifier(auth0_provider, client_id_str)
     raise MCPAuthConfigError("MCP_OAUTH_PROVIDER must be 'auth0' or 'oidc'.")
 
 
@@ -586,8 +665,10 @@ def create_default_mcp_auth_factory(app: Flask) -> Optional[Any]:
     """Default MCP auth factory using app.config values.
 
     Accepts Google, Azure Entra, and Auth0 bearer tokens and, when OAuth
-    client settings are present, publishes an authorization server for
-    Claude. Does not fall back to ``MCP_DEV_USERNAME``.
+    client settings are present, publishes an authorization server so Claude
+    can sign in. Claude's session is the upstream ID token, which
+    ``idp_email_user_resolver`` maps by email. Does not fall back to
+    ``MCP_DEV_USERNAME``.
     """
     if not app.config.get("MCP_AUTH_ENABLED", False):
         return None
@@ -629,7 +710,16 @@ def create_default_mcp_auth_factory(app: Flask) -> Optional[Any]:
     if oauth_server is not None or len(verifiers) != 1:
         from fastmcp.server.auth import MultiAuth
 
-        return MultiAuth(server=oauth_server, verifiers=verifiers)
+        # Identity scopes (openid, email, profile) belong to Claude's
+        # authorize redirect. Inheriting them here would reject a direct
+        # Google, Azure, or Auth0 bearer whose scope claim is different.
+        multi_kwargs: dict[str, Any] = {
+            "server": oauth_server,
+            "verifiers": verifiers,
+        }
+        if oauth_server is not None:
+            multi_kwargs["required_scopes"] = []
+        return MultiAuth(**multi_kwargs)
     return verifiers[0]
 
 
