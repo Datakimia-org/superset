@@ -44,7 +44,7 @@ def _make_mock_user(username: str = "testuser") -> MagicMock:
 
 
 def _make_access_token(
-    claims: dict[str, str] | None = None, **kwargs: str
+    claims: dict[str, object] | None = None, **kwargs: str
 ) -> MagicMock:
     """Create a mock AccessToken matching FastMCP's format."""
     token = MagicMock()
@@ -490,14 +490,16 @@ def test_idp_resolver_looks_up_superset_user_by_email(app) -> None:
     ]
 
     for issuer in cases:
-        token = _make_access_token(
-            claims={
-                "iss": issuer,
-                "email": "alice@example.com",
-                "preferred_username": "not-alice",
-                "sub": "opaque",
-            }
-        )
+        claims: dict[str, object] = {
+            "iss": issuer,
+            "email": "alice@example.com",
+            "preferred_username": "not-alice",
+            "sub": "opaque",
+        }
+        # Azure Entra does not emit email_verified. Google and Auth0 must.
+        if "microsoftonline.com" not in issuer:
+            claims["email_verified"] = True
+        token = _make_access_token(claims=claims)
 
         def _load(
             username: str | None = None,
@@ -580,6 +582,7 @@ def test_idp_resolver_rejects_unknown_email(app) -> None:
         claims={
             "iss": "https://accounts.google.com",
             "email": "missing@example.com",
+            "email_verified": True,
         }
     )
 
@@ -603,3 +606,71 @@ def test_idp_resolver_rejects_unknown_email(app) -> None:
                     _resolve_user_from_jwt_context(app)
         finally:
             app.config.pop("MCP_USER_RESOLVER", None)
+
+
+def test_idp_resolver_rejects_unverified_google_and_auth0_email(app) -> None:
+    """Google and Auth0 must set email_verified to true."""
+    issuers = (
+        "https://accounts.google.com",
+        "https://tenant.auth0.com/",
+    )
+    for issuer in issuers:
+        for verified in (False, None, "true"):
+            claims: dict[str, object] = {
+                "iss": issuer,
+                "email": "alice@example.com",
+            }
+            if verified is not None:
+                claims["email_verified"] = verified
+            with pytest.raises(ValueError, match="not verified"):
+                idp_email_user_resolver(app, _make_access_token(claims=claims))
+
+
+def test_idp_resolver_does_not_use_preferred_username_for_google(app) -> None:
+    """Google identity is the verified email claim, not preferred_username."""
+    token = _make_access_token(
+        claims={
+            "iss": "https://accounts.google.com",
+            "preferred_username": "alice@example.com",
+            "email_verified": True,
+        }
+    )
+    with pytest.raises(ValueError, match="missing an email claim"):
+        idp_email_user_resolver(app, token)
+
+
+def test_idp_resolver_accepts_azure_mailbox_claims_without_email_verified(
+    app,
+) -> None:
+    """Azure omits email_verified and often puts the mailbox in upn."""
+    issuer = (
+        "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0"
+    )
+    for claim in ("email", "preferred_username", "upn"):
+        token = _make_access_token(claims={"iss": issuer, claim: "alice@contoso.com"})
+        assert idp_email_user_resolver(app, token) == "alice@contoso.com"
+
+
+def test_idp_resolver_rejects_azure_guest_upn_and_explicit_unverified(app) -> None:
+    """Guest UPNs and an explicit email_verified false do not match a user."""
+    issuer = (
+        "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0"
+    )
+    guest = _make_access_token(
+        claims={
+            "iss": issuer,
+            "preferred_username": "alice_gmail.com#EXT#@contoso.onmicrosoft.com",
+        }
+    )
+    with pytest.raises(ValueError, match="missing an email claim"):
+        idp_email_user_resolver(app, guest)
+
+    unverified = _make_access_token(
+        claims={
+            "iss": issuer,
+            "email": "alice@contoso.com",
+            "email_verified": False,
+        }
+    )
+    with pytest.raises(ValueError, match="not verified"):
+        idp_email_user_resolver(app, unverified)

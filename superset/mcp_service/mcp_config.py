@@ -785,13 +785,37 @@ def _is_auth0_issuer(issuer: str, app: Any) -> bool:
     return False
 
 
+def _email_shaped_claim(value: Any) -> str | None:
+    """Return one email address, or None.
+
+    Azure guest UPNs look like ``user_gmail.com#EXT#@tenant.onmicrosoft.com``.
+    That string is not the person's mailbox, so it is not a Superset login.
+    """
+    if not isinstance(value, str):
+        return None
+    email = value.strip()
+    if "@" not in email or any(char.isspace() for char in email):
+        return None
+    if "#EXT#" in email.upper():
+        return None
+    return email
+
+
 def idp_email_user_resolver(app: Any, access_token: Any) -> str:
     """Map a Google, Azure Entra, or Auth0 token to a Superset user email.
 
     The default resolver matches ``preferred_username`` / ``username`` and
     does not bind ``iss``. This resolver fails closed unless ``iss`` is one
-    of those three providers and the token carries an email claim. The
-    caller loads the Superset user by that email.
+    of those three providers and the token carries an email. The caller
+    loads the Superset user by that email.
+
+    Google and Auth0 ID tokens include ``email_verified``. A missing or
+    false claim is rejected, so an unverified address cannot match a
+    Superset user. Azure Entra does not emit ``email_verified``; the tenant
+    is the authority, and an explicit ``false`` is still rejected. Azure
+    access and ID tokens often omit ``email`` and put the mailbox in
+    ``preferred_username`` or ``upn``. Those claims are accepted only for
+    Azure, and only when the value is a single email address.
     """
     claims = getattr(access_token, "claims", None)
     if not isinstance(claims, dict):
@@ -805,12 +829,23 @@ def idp_email_user_resolver(app: Any, access_token: Any) -> str:
     ):
         raise ValueError("JWT issuer is not Google, Azure Entra, or Auth0")
 
-    email = claims.get("email")
-    if not isinstance(email, str):
+    if _is_azure_entra_issuer(issuer):
+        email = (
+            _email_shaped_claim(claims.get("email"))
+            or _email_shaped_claim(claims.get("preferred_username"))
+            or _email_shaped_claim(claims.get("upn"))
+        )
+        issuer_emits_verified = False
+    else:
+        email = _email_shaped_claim(claims.get("email"))
+        issuer_emits_verified = True
+
+    if email is None:
         raise ValueError("JWT identity provider token is missing an email claim")
-    email = email.strip()
-    if "@" not in email or any(char.isspace() for char in email):
-        raise ValueError("JWT identity provider token is missing an email claim")
+
+    verified = claims.get("email_verified")
+    if verified is not True and (verified is not None or issuer_emits_verified):
+        raise ValueError("JWT identity provider email is not verified")
     return email
 
 
