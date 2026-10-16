@@ -16,7 +16,8 @@
 # under the License.
 import pytest
 
-from superset.extensions import csrf
+from superset.extensions import appbuilder, csrf
+from superset.security.manager import SupersetPermissionViewMenuApi
 
 
 @pytest.mark.parametrize(
@@ -33,9 +34,28 @@ def test_csrf_not_exempt(app_context: None) -> None:
         "MenuApi",
         "SecurityApi",
         "OpenApi",
-        "PermissionViewMenuApi",
+        "SupersetPermissionViewMenuApi",
         "SupersetRoleApi",
         "SupersetUserApi",
         "PermissionApi",
         "ViewMenuApi",
     }
+
+
+def test_permission_view_menu_api_allows_role_form_filters(app_context: None) -> None:
+    """Role edit can search permissions by name and resolve existing ids."""
+    api = next(
+        view
+        for view in appbuilder.baseviews
+        if isinstance(view, SupersetPermissionViewMenuApi)
+    )
+
+    assert "id" in api._filters.search_columns
+    assert "permission.name" in api._filters.search_columns
+    assert "view_menu.name" in api._filters.search_columns
+    assert any(
+        flt.arg_name == "ct" for flt in api._filters._search_filters["permission.name"]
+    )
+    assert any(
+        flt.arg_name == "ct" for flt in api._filters._search_filters["view_menu.name"]
+    )
