@@ -185,12 +185,16 @@ async function resolvePermalinkUrl(
   const bootstrapData = getBootstrapData();
   if (bootstrapData.embedded) {
     try {
-      // Ask the SDK to resolve the permalink URL
-      // Returns null if no callback was provided by the host
-      const resolvedUrl = await Switchboard.get<string | null>(
-        'resolvePermalinkUrl',
-        { key },
-      );
+      // Ask the SDK to resolve the permalink URL.
+      // The host SDK 0.1.3 never replies when no callback is registered,
+      // and Switchboard.get does not reject in that case. Cap the wait so
+      // Share can fall back to the permalink URL from the POST.
+      const resolvedUrl = await Promise.race([
+        Switchboard.get<string | null>('resolvePermalinkUrl', { key }),
+        new Promise<null>(resolve => {
+          window.setTimeout(() => resolve(null), 300);
+        }),
+      ]);
 
       // If callback returned a valid URL string, use it; otherwise use Superset's default URL
       if (typeof resolvedUrl === 'string' && resolvedUrl.length > 0) {
