@@ -147,10 +147,19 @@ export const getSuffixIcon = (
   if (isLoading) {
     return <StyledSpin size="small" />;
   }
+  // antd sets pointer-events: auto on a custom suffix icon unless it
+  // carries this class, so the click never reaches the selector.
+  const suffixClassName = 'ant-select-suffix';
   if (showSearch && isDropdownVisible) {
-    return <Icons.SearchOutlined iconSize="s" />;
+    return <Icons.SearchOutlined className={suffixClassName} iconSize="s" />;
   }
-  return <Icons.DownOutlined iconSize="s" aria-label="down" />;
+  return (
+    <Icons.DownOutlined
+      aria-label="down"
+      className={suffixClassName}
+      iconSize="s"
+    />
+  );
 };
 
 export const dropDownRenderHelper = (

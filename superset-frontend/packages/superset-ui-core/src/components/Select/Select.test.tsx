@@ -153,6 +153,18 @@ test('displays a header', async () => {
   expect(screen.getByText(headerText)).toBeInTheDocument();
 });
 
+test('suffix icons let clicks pass through to the selector', async () => {
+  render(<Select {...defaultProps} />);
+  expect(getElementByClassName('.ant-select-arrow .anticon')).toHaveClass(
+    'ant-select-suffix',
+  );
+
+  await open();
+  expect(getElementByClassName('.ant-select-arrow .anticon')).toHaveClass(
+    'ant-select-suffix',
+  );
+});
+
 test('adds a new option if the value is not in the options, when options are empty', async () => {
   render(<Select {...defaultProps} options={[]} value={OPTIONS[0]} />);
   await open();
