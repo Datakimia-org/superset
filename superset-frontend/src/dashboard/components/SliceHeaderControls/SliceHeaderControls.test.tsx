@@ -574,6 +574,18 @@ test('Should show "View as table"', () => {
   expect(screen.getByText('View as table')).toBeInTheDocument();
 });
 
+test('opens the chart data modal from View as table', async () => {
+  const props = createProps();
+  renderWrapper(props);
+  openMenu();
+  await userEvent.click(screen.getByText('View as table'));
+  expect(
+    await screen.findByRole('dialog', {
+      name: 'Chart Data: Vaccine Candidates per Country & Stage',
+    }),
+  ).toBeInTheDocument();
+});
+
 test('Should not show "View as table"', () => {
   const props = {
     ...createProps(),

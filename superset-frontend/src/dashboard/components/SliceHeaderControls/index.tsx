@@ -476,19 +476,7 @@ const SliceHeaderControls = (
   if (canExplore || canViewQuery) {
     newMenuItems.push({
       key: MenuKeys.ViewQuery,
-      label: (
-        <ModalTrigger
-          triggerNode={
-            <div data-test="view-query-menu-item">{t('View query')}</div>
-          }
-          modalTitle={t('View query')}
-          modalBody={<ViewQueryModal latestQueryFormData={props.formData} />}
-          draggable
-          resizable
-          responsive
-          ref={queryMenuRef}
-        />
-      ),
+      label: <div data-test="view-query-menu-item">{t('View query')}</div>,
     });
   }
 
@@ -496,26 +484,7 @@ const SliceHeaderControls = (
     newMenuItems.push({
       key: MenuKeys.ViewResults,
       label: (
-        <ViewResultsModalTrigger
-          canExplore={props.supersetCanExplore}
-          exploreUrl={props.exploreUrl}
-          triggerNode={
-            <div data-test="view-query-menu-item">{t('View as table')}</div>
-          }
-          modalRef={resultsMenuRef}
-          modalTitle={t('Chart Data: %s', slice.slice_name)}
-          modalBody={
-            <ResultsPaneOnDashboard
-              queryFormData={props.formData}
-              queryForce={false}
-              dataSize={20}
-              isRequest
-              isVisible
-              canDownload={!!props.supersetCanCSV}
-              columnDisplayNames={datasetWithVerboseMap?.verbose_map}
-            />
-          }
-        />
+        <div data-test="view-as-table-menu-item">{t('View as table')}</div>
       ),
     });
   }
@@ -628,6 +597,41 @@ const SliceHeaderControls = (
 
   return (
     <>
+      {(canExplore || canViewQuery) && (
+        <div hidden>
+          <ModalTrigger
+            triggerNode={<span />}
+            modalTitle={t('View query')}
+            modalBody={<ViewQueryModal latestQueryFormData={props.formData} />}
+            draggable
+            resizable
+            responsive
+            ref={queryMenuRef}
+          />
+        </div>
+      )}
+      {(canExplore || canViewTable) && (
+        <div hidden>
+          <ViewResultsModalTrigger
+            canExplore={props.supersetCanExplore}
+            exploreUrl={props.exploreUrl}
+            triggerNode={<span />}
+            modalRef={resultsMenuRef}
+            modalTitle={t('Chart Data: %s', slice.slice_name)}
+            modalBody={
+              <ResultsPaneOnDashboard
+                queryFormData={props.formData}
+                queryForce={false}
+                dataSize={20}
+                isRequest
+                isVisible
+                canDownload={!!props.supersetCanCSV}
+                columnDisplayNames={datasetWithVerboseMap?.verbose_map}
+              />
+            }
+          />
+        </div>
+      )}
       {isFullSize && (
         <Icons.FullscreenExitOutlined
           style={{ fontSize: 22 }}
