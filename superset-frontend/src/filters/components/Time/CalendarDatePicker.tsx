@@ -1,15 +1,22 @@
 import { useState, useEffect } from 'react';
-import moment, { Moment } from 'moment';
-import { fetchTimeRange, NO_TIME_RANGE, useCSSTextTruncation } from '@superset-ui/core';
+import { Dayjs } from 'dayjs';
+import {
+  fetchTimeRange,
+  NO_TIME_RANGE,
+  useCSSTextTruncation,
+} from '@superset-ui/core';
+import { extendedDayjs } from '@superset-ui/core/utils/dates';
 import { styled, useTheme } from '@apache-superset/core/theme';
 import { t } from '@apache-superset/core/translation';
 import {
   Button,
   RangePicker,
   Tooltip,
+  type RangePickerProps,
 } from '@superset-ui/core/components';
 import ControlPopover from 'src/explore/components/controls/ControlPopover/ControlPopover';
 import { DateLabel } from 'src/explore/components/controls/DateFilterControl/components';
+import { DAYJS_FORMAT } from 'src/explore/components/controls/DateFilterControl/utils';
 import { Icons } from '@superset-ui/core/components/Icons';
 import {
   CALENDAR_DATE_PICKER_PRESETS,
@@ -27,8 +34,6 @@ export interface CalendarDatePickerProps {
   onClosePopover?: () => void;
   isOverflowingFilterBar?: boolean;
 }
-
-const MOMENT_FORMAT = 'YYYY-MM-DD[T]HH:mm:ss';
 
 const PopoverContainer = styled.div`
   display: flex;
@@ -85,6 +90,13 @@ const PopoverContainer = styled.div`
   }
 `;
 
+/** Calendar day from UTC date parts, so the picker does not shift across timezones. */
+function utcPartsToLocalDay(utcDate: Dayjs): Dayjs {
+  return extendedDayjs(
+    new Date(utcDate.year(), utcDate.month(), utcDate.date()),
+  );
+}
+
 export default function CalendarDatePicker({
   value,
   onChange,
@@ -130,38 +142,31 @@ export default function CalendarDatePicker({
 
   // Determine if tempValue is a custom range
   const isCustom = tempValue.includes(' : ');
-  let customDates: [Moment, Moment] | null = getPresetDates(tempValue);
+  let customDates: [Dayjs, Dayjs] | null = getPresetDates(tempValue);
   if (isCustom) {
     const parts = tempValue.split(' : ');
     if (parts.length === 2) {
-      const startUtc = moment.utc(parts[0]);
-      const untilUtc = moment.utc(parts[1]);
+      const startUtc = extendedDayjs.utc(parts[0]);
+      const untilUtc = extendedDayjs.utc(parts[1]);
       if (startUtc.isValid() && untilUtc.isValid()) {
-        const start = moment([
-          startUtc.year(),
-          startUtc.month(),
-          startUtc.date(),
-        ]);
+        const start = utcPartsToLocalDay(startUtc);
         let endUtc = untilUtc;
         if (parts[1].endsWith('T00:00:00')) {
-          endUtc = untilUtc.clone().subtract(1, 'day');
+          endUtc = untilUtc.subtract(1, 'day');
         } else if (parts[1].endsWith('T23:59:59')) {
-          endUtc = untilUtc.clone().startOf('day');
+          endUtc = untilUtc.startOf('day');
         }
-        const end = moment([endUtc.year(), endUtc.month(), endUtc.date()]);
+        const end = utcPartsToLocalDay(endUtc);
         customDates = [start, end];
       }
     }
   }
 
-  const handleCustomChange = (dates: [Moment, Moment] | null) => {
-    if (dates && dates.length === 2) {
-      const start = dates[0].clone().startOf('day').format(MOMENT_FORMAT);
-      const until = dates[1]
-        .clone()
-        .startOf('day')
-        .add(1, 'day')
-        .format(MOMENT_FORMAT);
+  const handleCustomChange: RangePickerProps['onChange'] = dates => {
+    const [startDate, endDate] = dates ?? [];
+    if (startDate && endDate) {
+      const start = startDate.startOf('day').format(DAYJS_FORMAT);
+      const until = endDate.startOf('day').add(1, 'day').format(DAYJS_FORMAT);
       setTempValue(`${start} : ${until}`);
     } else {
       setTempValue(NO_TIME_RANGE);
@@ -189,8 +194,9 @@ export default function CalendarDatePicker({
         <div className="picker">
           <strong>{t('Custom Range')}</strong>
           <RangePicker
-            value={customDates as any}
-            onChange={handleCustomChange as any}
+            // dayjs only. Moment `.add()` mutates, so each cell walks years ahead.
+            value={customDates}
+            onChange={handleCustomChange}
             allowClear={false}
           />
           <div
@@ -204,7 +210,7 @@ export default function CalendarDatePicker({
             <strong>
               {tempValue === NO_TIME_RANGE
                 ? t('No filter')
-                : getCalendarPresetLabel(tempValue) ?? tempValue}
+                : (getCalendarPresetLabel(tempValue) ?? tempValue)}
             </strong>
           </div>
         </div>

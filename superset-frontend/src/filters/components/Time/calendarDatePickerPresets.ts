@@ -7,8 +7,9 @@
  *
  * Legacy rolling presets ("Last week", etc.) are normalized on apply for existing dashboards.
  */
-import moment, { Moment } from 'moment';
+import { Dayjs } from 'dayjs';
 import { NO_TIME_RANGE } from '@superset-ui/core';
+import { extendedDayjs } from '@superset-ui/core/utils/dates';
 import { t } from '@apache-superset/core/translation';
 import {
   CurrentDay,
@@ -88,44 +89,50 @@ export function getCalendarPresetLabel(value: string): string | null {
   return preset?.label ?? null;
 }
 
-export function getPresetDates(presetValue: string): [Moment, Moment] | null {
-  const today = moment().startOf('day');
-  const currentWeekStart = today.clone().startOf('isoWeek');
-  const currentMonthStart = today.clone().startOf('month');
-  const currentYearStart = today.clone().startOf('year');
+/** Monday-start week, matching Superset calendar presets. */
+function startOfMondayWeek(date: Dayjs): Dayjs {
+  const daysFromMonday = (date.day() + 6) % 7;
+  return date.subtract(daysFromMonday, 'day');
+}
+
+export function getPresetDates(presetValue: string): [Dayjs, Dayjs] | null {
+  const today = extendedDayjs().startOf('day');
+  const currentWeekStart = startOfMondayWeek(today);
+  const currentMonthStart = today.startOf('month');
+  const currentYearStart = today.startOf('year');
 
   switch (presetValue) {
     case CALENDAR_DATE_PICKER_PRESET_VALUES.currentDay:
-      return [today.clone(), today.clone()];
+      return [today, today];
     case CALENDAR_DATE_PICKER_PRESET_VALUES.currentWeek:
       return [
-        currentWeekStart.clone(),
-        currentWeekStart.clone().add(1, 'week').subtract(1, 'day'),
+        currentWeekStart,
+        currentWeekStart.add(1, 'week').subtract(1, 'day'),
       ];
     case CALENDAR_DATE_PICKER_PRESET_VALUES.currentMonth:
       return [
-        currentMonthStart.clone(),
-        currentMonthStart.clone().add(1, 'month').subtract(1, 'day'),
+        currentMonthStart,
+        currentMonthStart.add(1, 'month').subtract(1, 'day'),
       ];
     case CALENDAR_DATE_PICKER_PRESET_VALUES.currentYear:
       return [
-        currentYearStart.clone(),
-        currentYearStart.clone().add(1, 'year').subtract(1, 'day'),
+        currentYearStart,
+        currentYearStart.add(1, 'year').subtract(1, 'day'),
       ];
     case CALENDAR_DATE_PICKER_PRESET_VALUES.previousWeek:
       return [
-        currentWeekStart.clone().subtract(1, 'week'),
-        currentWeekStart.clone().subtract(1, 'day'),
+        currentWeekStart.subtract(1, 'week'),
+        currentWeekStart.subtract(1, 'day'),
       ];
     case CALENDAR_DATE_PICKER_PRESET_VALUES.previousMonth:
       return [
-        currentMonthStart.clone().subtract(1, 'month'),
-        currentMonthStart.clone().subtract(1, 'day'),
+        currentMonthStart.subtract(1, 'month'),
+        currentMonthStart.subtract(1, 'day'),
       ];
     case CALENDAR_DATE_PICKER_PRESET_VALUES.previousYear:
       return [
-        currentYearStart.clone().subtract(1, 'year'),
-        currentYearStart.clone().subtract(1, 'day'),
+        currentYearStart.subtract(1, 'year'),
+        currentYearStart.subtract(1, 'day'),
       ];
     default:
       return null;

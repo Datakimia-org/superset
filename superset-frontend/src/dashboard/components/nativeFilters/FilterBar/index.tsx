@@ -516,15 +516,12 @@ const FilterBar: FC<FiltersBarProps> = ({
       // Only clear in-scope filters
       if (!inScopeFilterIds.has(id)) return;
 
-      // Range filters use [null, null] as the cleared value; others use undefined
+      // Range filters use [null, null] as the cleared value; others use undefined.
+      // Only the pending selection changes here. The applied mask stays until
+      // Apply, so a requiredFirst filter is not treated as failed to load.
       const clearedValue =
         filterType === 'filter_range' ? [null, null] : undefined;
-      const clearedDataMask = {
-        filterState: { value: clearedValue },
-        extraFormData: {},
-      };
       if (dataMaskSelected[id]) {
-        dispatch(updateDataMask(id, clearedDataMask));
         setDataMaskSelected(draft => {
           if (draft[id].filterState?.value !== undefined) {
             draft[id].filterState!.value = clearedValue;

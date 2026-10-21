@@ -471,7 +471,7 @@ test('FilterBar renders correctly when filter has complete extraFormData', async
   expect(screen.getByTestId(getTestId('filter-icon'))).toBeInTheDocument();
 });
 
-test('handleClearAll dispatches updateDataMask with value undefined for filter_select', async () => {
+test('handleClearAll does not apply the cleared select value before Apply', async () => {
   const filterId = 'NATIVE_FILTER-clear-select';
   const updateDataMaskSpy = jest.spyOn(dataMaskActions, 'updateDataMask');
   const selectFilter = createFilter({
@@ -518,14 +518,11 @@ test('handleClearAll dispatches updateDataMask with value undefined for filter_s
     userEvent.click(clearBtn);
   });
 
-  expect(updateDataMaskSpy).toHaveBeenCalledWith(filterId, {
-    filterState: { value: undefined },
-    extraFormData: {},
-  });
+  expect(updateDataMaskSpy).not.toHaveBeenCalled();
   updateDataMaskSpy.mockRestore();
 });
 
-test('handleClearAll dispatches updateDataMask with [null, null] for filter_range', async () => {
+test('handleClearAll does not apply the cleared range value before Apply', async () => {
   fetchMock.post('glob:*/api/v1/chart/data', {
     result: [{ data: [{ min: 0, max: 100 }] }],
   });
@@ -575,14 +572,11 @@ test('handleClearAll dispatches updateDataMask with [null, null] for filter_rang
     userEvent.click(clearBtn);
   });
 
-  expect(updateDataMaskSpy).toHaveBeenCalledWith(filterId, {
-    filterState: { value: [null, null] },
-    extraFormData: {},
-  });
+  expect(updateDataMaskSpy).not.toHaveBeenCalled();
   updateDataMaskSpy.mockRestore();
 });
 
-test('handleClearAll only dispatches for filters present in dataMask', async () => {
+test('handleClearAll does not apply filters that are only pending', async () => {
   const idInMask = 'NATIVE_FILTER-has-value';
   const idNotInMask = 'NATIVE_FILTER-no-value';
   const updateDataMaskSpy = jest.spyOn(dataMaskActions, 'updateDataMask');
@@ -638,11 +632,7 @@ test('handleClearAll only dispatches for filters present in dataMask', async () 
     userEvent.click(clearBtn);
   });
 
-  expect(updateDataMaskSpy).toHaveBeenCalledTimes(1);
-  expect(updateDataMaskSpy).toHaveBeenCalledWith(idInMask, {
-    filterState: { value: undefined },
-    extraFormData: {},
-  });
+  expect(updateDataMaskSpy).not.toHaveBeenCalled();
   updateDataMaskSpy.mockRestore();
 });
 
@@ -776,17 +766,9 @@ test('FilterBar Clear All only clears in-scope filters, not out-of-scope ones', 
     userEvent.click(clearButton);
   });
 
-  // Verify only the in-scope filter was cleared, not the out-of-scope ones
-  const clearedFilterIds = updateDataMaskSpy.mock.calls.map(call => call[0]);
-  expect(clearedFilterIds).toContain(inScopeFilterId);
-  expect(clearedFilterIds).not.toContain(outOfScopeRequiredFilterId);
-  expect(clearedFilterIds).not.toContain(outOfScopeNonRequiredFilterId);
-
-  // Verify the in-scope filter was cleared with the correct value
-  expect(updateDataMaskSpy).toHaveBeenCalledWith(inScopeFilterId, {
-    filterState: { value: undefined },
-    extraFormData: {},
-  });
+  // Clear all only updates the pending selection. Applied masks stay until Apply,
+  // including out-of-scope filters, which are not part of the pending clear.
+  expect(updateDataMaskSpy).not.toHaveBeenCalled();
 
   updateDataMaskSpy.mockRestore();
 });

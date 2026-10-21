@@ -242,6 +242,10 @@ FEATURE_FLAGS = {
     "TAGGING_SYSTEM": True,
     "THUMBNAILS": True,
     "THUMBNAILS_SQLA_LISTENERS": True,
+    # Dashboard Download as PDF/PNG uses the worker screenshot. The client
+    # capture leaves virtualized charts on the loading state.
+    "ENABLE_DASHBOARD_SCREENSHOT_ENDPOINTS": True,
+    "ENABLE_DASHBOARD_DOWNLOAD_WEBDRIVER_SCREENSHOT": True,
     "DASHBOARD_RBAC": True,
     "ENABLE_TEMPLATE_PROCESSING": True,
     "DASHBOARD_VIRTUALIZATION": False,
