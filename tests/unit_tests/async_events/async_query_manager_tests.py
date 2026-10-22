@@ -62,6 +62,21 @@ def test_parse_channel_id_from_request(async_query_manager):
     )
 
 
+def test_parse_channel_id_from_request_null_subject(async_query_manager):
+    encoded_token = encode(
+        {"channel": "test_channel_id", "sub": None},
+        JWT_TOKEN_SECRET,
+        algorithm="HS256",
+    )
+
+    request = Mock()
+    request.cookies = {"superset_async_jwt": encoded_token}
+
+    assert (
+        async_query_manager.parse_channel_id_from_request(request) == "test_channel_id"
+    )
+
+
 def test_parse_channel_id_from_request_no_cookie(async_query_manager):
     request = Mock()
     request.cookies = {}
