@@ -92,7 +92,9 @@ def load_chart_data_into_cache(
     # pylint: disable=import-outside-toplevel
     from superset.commands.chart.data.get_data_command import ChartDataCommand
 
-    with override_user(_load_user_from_job_metadata(job_metadata), force=False):
+    # force replaces an anonymous g.user already on the worker. Leaving it
+    # makes can_access take the public/JWT path, which needs a request.
+    with override_user(_load_user_from_job_metadata(job_metadata), force=True):
         try:
             set_form_data(form_data)
             query_context = _create_query_context_from_form(form_data)
@@ -133,7 +135,7 @@ def load_explore_json_into_cache(  # pylint: disable=too-many-locals
 ) -> None:
     cache_key_prefix = "ejr-"  # ejr: explore_json request
 
-    with override_user(_load_user_from_job_metadata(job_metadata), force=False):
+    with override_user(_load_user_from_job_metadata(job_metadata), force=True):
         try:
             set_form_data(form_data)
             datasource_id, datasource_type = get_datasource_info(None, None, form_data)

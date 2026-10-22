@@ -17,7 +17,9 @@
 from unittest import mock
 
 import pytest
+from flask import g
 from flask_babel import lazy_gettext as _
+from flask_login import AnonymousUserMixin
 
 from superset.commands.chart.exceptions import ChartDataQueryFailedError
 from superset.errors import ErrorLevel, SupersetError, SupersetErrorType
@@ -55,6 +57,35 @@ def test_load_chart_data_into_cache_with_error(
     mock_async_query_manager.update_job.assert_called_once_with(
         job_metadata, "error", errors=expected_errors
     )
+
+
+@mock.patch("superset.tasks.async_queries._load_user_from_job_metadata")
+@mock.patch("superset.tasks.async_queries.async_query_manager")
+@mock.patch("superset.tasks.async_queries.ChartDataQueryContextSchema")
+def test_load_chart_data_into_cache_replaces_anonymous_g_user(
+    mock_query_context_schema_cls, mock_async_query_manager, mock_load_user
+):
+    """The job user replaces an anonymous g.user already set on the worker."""
+    from superset.tasks.async_queries import load_chart_data_into_cache
+
+    job_user = mock.MagicMock()
+    job_user.is_anonymous = False
+    mock_load_user.side_effect = lambda _metadata: job_user
+    mock_async_query_manager.STATUS_ERROR = "error"
+
+    seen: dict[str, object] = {}
+
+    def load(_form_data: dict[str, object]) -> None:
+        seen["user"] = g.user
+        raise ChartDataQueryFailedError(_("stop"))
+
+    mock_query_context_schema_cls.return_value.load.side_effect = load
+    g.user = AnonymousUserMixin()
+
+    with pytest.raises(ChartDataQueryFailedError):
+        load_chart_data_into_cache({"user_id": 7}, {})
+
+    assert seen["user"] is job_user
 
 
 @mock.patch("superset.tasks.async_queries.security_manager")
