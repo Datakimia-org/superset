@@ -2784,7 +2784,11 @@ class ExploreMixin:  # pylint: disable=too-many-public-methods
         for orig_col, ascending in orderby:  # noqa: B007
             col: Union[AdhocMetric, ColumnElement] = orig_col
             if isinstance(col, dict):
-                col = cast(AdhocMetric, col)
+                # sqlglot rewrites whitespace and dialect syntax. This dict is
+                # the same object on the query form hashed for the dataframe
+                # cache before SQL is built, and persisted on the qc- entry
+                # afterwards. Sanitize a copy so those keys stay aligned.
+                col = cast(AdhocMetric, dict(col))
                 if col.get("sqlExpression"):
                     col["sqlExpression"] = self._process_orderby_expression(
                         expression=col["sqlExpression"],
