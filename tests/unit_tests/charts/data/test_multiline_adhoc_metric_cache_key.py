@@ -39,6 +39,7 @@ from superset.common.query_context import QueryContext
 from superset.common.query_object import QueryObject
 from superset.db_engine_specs.bigquery import BigQueryEngineSpec
 from superset.models.helpers import ExploreMixin, QueryResult
+from superset.superset_typing import QueryObjectDict
 from superset.utils import json
 
 # Chart 619 metric, as stored in the DB (CRLF from the SQL editor).
@@ -71,8 +72,8 @@ class _Datasource(ExploreMixin):
     """Runs the real ``get_sqla_query`` orderby rewrite, then stops."""
 
     database_id = 1
-    catalog = None
-    sql = None
+    catalog = None  # type: ignore[assignment]
+    sql = None  # type: ignore[assignment]
     uid = "75__table"
     cache_timeout = 300
     changed_on = None
@@ -88,19 +89,19 @@ class _Datasource(ExploreMixin):
         )()
 
     @property
-    def database(self) -> Any:  # type: ignore[override]
+    def database(self) -> Any:
         return self._database
 
     @property
-    def schema(self) -> str:  # type: ignore[override]
+    def schema(self) -> str:
         return "public"
 
     @property
-    def columns(self) -> list[Any]:  # type: ignore[override]
+    def columns(self) -> list[Any]:
         return []
 
     @property
-    def metrics(self) -> list[Any]:  # type: ignore[override]
+    def metrics(self) -> list[Any]:
         return []
 
     @property
@@ -116,13 +117,13 @@ class _Datasource(ExploreMixin):
         return None
 
     @property
-    def db_engine_spec(self) -> type[BigQueryEngineSpec]:  # type: ignore[override]
+    def db_engine_spec(self) -> type[BigQueryEngineSpec]:
         return BigQueryEngineSpec
 
     def get_template_processor(self, **kwargs: Any) -> None:  # type: ignore[override]
         return None
 
-    def get_extra_cache_keys(self, query_obj: dict[str, Any]) -> list[Any]:
+    def get_extra_cache_keys(self, query_obj: QueryObjectDict) -> list[Any]:
         return []
 
     def get_from_clause(self, template_processor: Any = None) -> tuple[Any, Any]:
@@ -210,7 +211,7 @@ def _async_cache_keys(sql_expression: str) -> tuple[str, str, dict[str, Any]]:
 
     # What set_and_log_cache writes under the qc- key, as Redis would return it.
     # RedisCache pickles the qc- value. Round-trip our own object, not external data.
-    stored_query = pickle.loads(  # noqa: S301
+    stored_query: dict[str, Any] = pickle.loads(  # noqa: S301
         pickle.dumps(query_context.cache_values["queries"][0])
     )
     reloaded = QueryObject(
@@ -223,6 +224,8 @@ def _async_cache_keys(sql_expression: str) -> tuple[str, str, dict[str, Any]]:
         is_timeseries=False,
     )
     get_key = query_context.query_cache_key(reloaded)
+    assert isinstance(worker_key, str)
+    assert get_key is not None
     return worker_key, get_key, stored_query
 
 
