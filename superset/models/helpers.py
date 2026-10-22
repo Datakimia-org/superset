@@ -2786,6 +2786,10 @@ class ExploreMixin:  # pylint: disable=too-many-public-methods
             if isinstance(col, dict):
                 col = cast(AdhocMetric, col)
                 if col.get("sqlExpression"):
+                    # Copy before sqlglot rewrites sqlExpression. QueryObject.cache_key
+                    # already hashed this dict, and get_payload persists the same
+                    # object in the qc- form that data_from_cache rehashes.
+                    col = cast(AdhocMetric, dict(col))
                     col["sqlExpression"] = self._process_orderby_expression(
                         expression=col["sqlExpression"],
                         database_id=self.database_id,
