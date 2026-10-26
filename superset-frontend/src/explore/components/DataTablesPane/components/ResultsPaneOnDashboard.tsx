@@ -26,22 +26,9 @@ const Wrapper = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: 0;
 
   .ant-tabs {
-    display: flex;
-    flex-direction: column;
     height: 100%;
-    min-height: 0;
-  }
-
-  /* The result grid is absolutely positioned. The tab bar must keep its
-     own height and the panel must receive the rest, or the grid collapses
-     to 0 while the search and row-count controls stay visible. */
-  && .ant-tabs-content-holder {
-    flex: 1 1 auto;
-    height: auto;
-    min-height: 0;
   }
 
   .ant-tabs-content {
@@ -49,12 +36,8 @@ const Wrapper = styled.div`
   }
 
   .ant-tabs-tabpane {
-    height: 100%;
-  }
-
-  .ant-tabs-tabpane > div {
-    height: 100%;
-    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
 
   .table-condensed {
@@ -99,7 +82,7 @@ export const ResultsPaneOnDashboard = ({
 
   return (
     <Wrapper>
-      <Tabs items={items} contentHeight="" />
+      <Tabs items={items} />
     </Wrapper>
   );
 };
