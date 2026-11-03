@@ -251,11 +251,218 @@ PermissionModelView.include_route_methods = {RouteMethod.LIST}
 ViewMenuModelView.include_route_methods = {RouteMethod.LIST}
 
 
+# Guest anti-tamper check (`query_context_modified` and helpers below).
+#
+# Fork port of apache/superset guest-payload work that is not in 6.1.0
+# (released May 2026; those PRs landed on master in July 2026 and were
+# backported to 6.2, not 6.1):
+#   https://github.com/apache/superset/pull/42295  control-specific params keys
+#   https://github.com/apache/superset/pull/42150  BASE_AXIS unwrap; issue #31872
+#   https://github.com/apache/superset/pull/42766  6.2 backport of #42150
+#   https://github.com/apache/superset/pull/42864  guest_payload.py + scalar lists
+# Older mixed-chart freeze_value work already in 6.1:
+#   https://github.com/apache/superset/pull/27566  / issue #27177
+#
+# Next version upgrade (6.2+): prefer upstream `query_context_modified` and,
+# if present, `superset/security/guest_payload.py`. Do not `--theirs` this
+# region blindly. Re-check `_STORED_METRIC_PARAMS` / `_STORED_COLUMN_PARAMS`
+# for `metrics_b` and `groupby_b` — mixed timeseries stores query B there and
+# #42295 does not list those keys. Drop this fork block only when upstream
+# covers mixed_timeseries + BASE_AXIS and those keys (or equivalent).
+#
+# Keys on an adhoc column/metric that a guest may legitimately change through a
+# supported native filter, and which therefore must not count as payload
+# tampering. The time grain of a temporal x-axis is baked into its BASE_AXIS
+# column by `normalizeTimeColumn` on the frontend.
+GUEST_OVERRIDABLE_VALUE_KEYS = frozenset({"timeGrain"})
+
+# Frontend-only markers that `normalizeTimeColumn` adds when it synthesizes a
+# chart's x-axis into a BASE_AXIS column. They decorate the column without
+# changing which data is queried.
+BASE_AXIS_SYNTHETIC_KEYS = frozenset({"columnType", "isColumnReference"})
+
+# Chart params keys that hold metrics. Mixed timeseries stores query B under
+# `metrics_b`; other viz types use control-specific names (`metric`, `x`/`y`).
+# Control-specific names: apache/superset#42295. `metrics_b`: Datakimia; keep
+# on upgrade until upstream `_STORED_METRIC_PARAMS` includes it.
+_STORED_METRIC_PARAMS = (
+    "metrics",
+    "metrics_b",
+    "metric",
+    "percent_metrics",
+    "secondary_metric",
+    "series_limit_metric",
+    "timeseries_limit_metric",
+    "x",
+    "y",
+    "size",
+)
+
+# Chart params keys that hold columns/group-bys. `x_axis` / `granularity_sqla`:
+# apache/superset#42295. `groupby_b`: mixed-chart query B (same upgrade note as
+# `metrics_b`).
+_STORED_COLUMN_PARAMS = (
+    "columns",
+    "groupby",
+    "groupby_b",
+    "all_columns",
+    "entity",
+    "series",
+    "series_columns",
+    "x_axis",
+    "granularity_sqla",
+)
+
+
+def _strip_overridable_keys(value: Any) -> Any:
+    """Recursively drop guest-overridable keys from a value."""
+    if isinstance(value, dict):
+        return {
+            key: _strip_overridable_keys(val)
+            for key, val in value.items()
+            if key not in GUEST_OVERRIDABLE_VALUE_KEYS
+        }
+    if isinstance(value, (list, tuple)):
+        return [_strip_overridable_keys(item) for item in value]
+    return value
+
+
 def freeze_value(value: Any) -> str:
     """
     Used to compare column and metric sets.
+
+    Guest-overridable keys (e.g. the time grain baked into a temporal x-axis
+    column) are dropped so that legitimate native-filter changes don't read as
+    payload tampering.
     """
-    return json.dumps(value, sort_keys=True)
+    return json.dumps(_strip_overridable_keys(value), sort_keys=True)
+
+
+def _denormalize_base_axis_column(value: Any) -> Any:
+    """
+    Reduce a synthesized BASE_AXIS x-axis column back to the reference it
+    stands for.
+
+    Port of apache/superset#42150 (6.2 backport #42766). `normalizeTimeColumn`
+    replaces the saved x-axis with an adhoc column tagged
+    `columnType: "BASE_AXIS"`. A physical x-axis is stored as a bare string
+    (e.g. `"fact_date"`) but sent as a dict, so the dict must collapse back to
+    the string to compare equal. Tagging an unrelated column as BASE_AXIS still
+    requires that column to be stored on the chart.
+    """
+    if not isinstance(value, dict) or value.get("columnType") != "BASE_AXIS":
+        return value
+    if value.get("isColumnReference") and isinstance(value.get("sqlExpression"), str):
+        return value["sqlExpression"]
+    return {k: v for k, v in value.items() if k not in BASE_AXIS_SYNTHETIC_KEYS}
+
+
+def _payload_value_identity(value: Any, *, is_metric: bool) -> str:
+    """Comparison identity for a column or metric in the guest anti-tamper check."""
+    if is_metric:
+        return freeze_value(value)
+    return freeze_value(_denormalize_base_axis_column(value))
+
+
+def _stored_param_values(params: dict[str, Any], keys: tuple[str, ...]) -> set[str]:
+    """Frozen values stored under any of the given chart params keys."""
+    values: set[str] = set()
+    for key in keys:
+        value = params.get(key)
+        if value is None or value == "":
+            continue
+        items = value if isinstance(value, (list, tuple)) else [value]
+        values.update(
+            freeze_value(item) for item in items if item is not None and item != ""
+        )
+    return values
+
+
+def _ensure_list(value: Any) -> list[Any]:
+    """
+    Normalize a value to a list for iteration.
+
+    Some viz types store a single value as a bare string rather than a
+    one-item list. Iterating a string yields its characters and would reject
+    every legitimate guest request for that chart.
+    """
+    if value is None:
+        return []
+    items = value if isinstance(value, (list, tuple)) else [value]
+    return [item for item in items if item is not None and item != ""]
+
+
+def _is_valid_orderby_entry(entry: Any) -> bool:
+    """Whether an orderby entry has the expected ``[term, ascending]`` shape."""
+    return (
+        isinstance(entry, (list, tuple))
+        and len(entry) == 2
+        and isinstance(entry[0], (str, dict))
+        and bool(entry[0])
+        and isinstance(entry[1], bool)
+    )
+
+
+def _stored_sort_targets(
+    stored_chart: "Slice",
+    stored_query_context: Optional[dict[str, Any]],
+) -> tuple[set[str], set[str]]:
+    """Return (allowed sort-term identities, stored order-by entry identities)."""
+    allowed: set[str] = _stored_param_values(
+        stored_chart.params_dict, _STORED_METRIC_PARAMS
+    )
+    allowed.update(
+        _stored_param_values(stored_chart.params_dict, _STORED_COLUMN_PARAMS)
+    )
+    stored_orderby: set[str] = _stored_param_values(
+        stored_chart.params_dict, ("orderby",)
+    )
+    if not stored_query_context:
+        return allowed, stored_orderby
+
+    for query in stored_query_context.get("queries") or []:
+        for value in _ensure_list(query.get("metrics")):
+            allowed.add(_payload_value_identity(value, is_metric=True))
+        for key in ("columns", "groupby"):
+            for value in _ensure_list(query.get(key)):
+                allowed.add(_payload_value_identity(value, is_metric=False))
+        for entry in _ensure_list(query.get("orderby")):
+            stored_orderby.add(freeze_value(entry))
+            if _is_valid_orderby_entry(entry):
+                allowed.add(freeze_value(_denormalize_base_axis_column(entry[0])))
+    return allowed, stored_orderby
+
+
+def _orderby_modified(
+    query_context: "QueryContext",
+    stored_chart: "Slice",
+    stored_query_context: Optional[dict[str, Any]],
+) -> bool:
+    """
+    Whether any order-by clause sorts by a term the stored chart does not
+    already reference.
+
+    A guest sorting an embedded chart by one of its existing columns or
+    metrics is not tampering; introducing a new expression is.
+    """
+    allowed, stored_orderby = _stored_sort_targets(stored_chart, stored_query_context)
+    form_data = query_context.form_data or {}
+    requested: list[Any] = list(_ensure_list(form_data.get("orderby")))
+    for query in query_context.queries:
+        requested.extend(_ensure_list(getattr(query, "orderby", None)))
+
+    for entry in requested:
+        if not _is_valid_orderby_entry(entry):
+            return True
+        if freeze_value(entry) in stored_orderby:
+            continue
+        target = _denormalize_base_axis_column(entry[0])
+        term_allowed = (
+            freeze_value(target) in allowed or freeze_value(entry[0]) in allowed
+        )
+        if not term_allowed:
+            return True
+    return False
 
 
 def query_context_modified(query_context: "QueryContext") -> bool:
@@ -264,6 +471,10 @@ def query_context_modified(query_context: "QueryContext") -> bool:
 
     This is used to ensure guest users don't modify the payload and fetch data
     different from what was shared with them in dashboards.
+
+    Fork notes (next version upgrade): see the guest-payload comment block
+    above ``GUEST_OVERRIDABLE_VALUE_KEYS`` (apache/superset#42295, #42150,
+    #42766, #42864; keep ``metrics_b`` / ``groupby_b`` if still missing).
     """
     form_data = query_context.form_data
     stored_chart = query_context.slice_
@@ -274,6 +485,11 @@ def query_context_modified(query_context: "QueryContext") -> bool:
 
     # cannot request a different chart
     if form_data.get("slice_id") != stored_chart.id:
+        logger.warning(
+            "Guest chart payload rejected for slice %s: requested slice_id does "
+            "not match the chart",
+            stored_chart.id,
+        )
         return True
 
     stored_query_context = (
@@ -282,35 +498,57 @@ def query_context_modified(query_context: "QueryContext") -> bool:
         else None
     )
 
-    # compare columns and metrics in form_data with stored values
-    for key, equivalent in [
-        ("metrics", ["metrics"]),
-        ("columns", ["columns", "groupby"]),
-        ("groupby", ["columns", "groupby"]),
-        ("orderby", ["orderby"]),
+    for key, stored_params_keys, equivalent in [
+        ("metrics", _STORED_METRIC_PARAMS, ["metrics"]),
+        ("columns", _STORED_COLUMN_PARAMS, ["columns", "groupby"]),
+        ("groupby", _STORED_COLUMN_PARAMS, ["columns", "groupby"]),
     ]:
-        requested_values = {freeze_value(value) for value in form_data.get(key) or []}
-        stored_values = {
-            freeze_value(value) for value in stored_chart.params_dict.get(key) or []
+        is_metric = key == "metrics"
+        requested_values = {
+            _payload_value_identity(value, is_metric=is_metric)
+            for value in _ensure_list(form_data.get(key))
         }
+        stored_values = _stored_param_values(
+            stored_chart.params_dict, stored_params_keys
+        )
         if not requested_values.issubset(stored_values):
+            logger.warning(
+                "Guest chart payload rejected for slice %s: form_data %s not a "
+                "subset of the stored chart",
+                stored_chart.id,
+                key,
+            )
             return True
 
-        # compare queries in query_context
         queries_values = {
-            freeze_value(value)
+            _payload_value_identity(value, is_metric=is_metric)
             for query in query_context.queries
-            for value in getattr(query, key, []) or []
+            for value in _ensure_list(getattr(query, key, None))
         }
         if stored_query_context:
             for query in stored_query_context.get("queries") or []:
-                for key in equivalent:
+                for equiv_key in equivalent:
                     stored_values.update(
-                        {freeze_value(value) for value in query.get(key) or []}
+                        _payload_value_identity(value, is_metric=is_metric)
+                        for value in _ensure_list(query.get(equiv_key))
                     )
 
         if not queries_values.issubset(stored_values):
+            logger.warning(
+                "Guest chart payload rejected for slice %s: query %s not a "
+                "subset of the stored chart",
+                stored_chart.id,
+                key,
+            )
             return True
+
+    if _orderby_modified(query_context, stored_chart, stored_query_context):
+        logger.warning(
+            "Guest chart payload rejected for slice %s: order-by references a "
+            "term not on the stored chart",
+            stored_chart.id,
+        )
+        return True
 
     return False
 
