@@ -19,6 +19,7 @@
 
 import json  # noqa: TID251
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from flask_appbuilder.security.sqla.models import Role, User
@@ -709,6 +710,206 @@ def test_query_context_modified_mixed_chart(mocker: MockerFixture) -> None:
     }
     query_context.queries = [QueryObject(metrics=requested_metrics)]  # type: ignore
     assert not query_context_modified(query_context)
+
+
+def _mixed_timeseries_metrics() -> tuple[AdhocMetric, AdhocMetric]:
+    """Impressions (query A) + Spend (query B), matching mixed_timeseries chart 16."""
+    impressions: AdhocMetric = {
+        "aggregate": "SUM",
+        "column": {"column_name": "impressions", "type": "INT64"},
+        "expressionType": "SIMPLE",
+        "hasCustomLabel": True,
+        "label": "Impressions",
+    }
+    spend: AdhocMetric = {
+        "aggregate": "SUM",
+        "column": {"column_name": "spend", "type": "FLOAT64"},
+        "expressionType": "SIMPLE",
+        "hasCustomLabel": True,
+        "label": "Spend",
+    }
+    return impressions, spend
+
+
+def _mixed_timeseries_base_axis(*, is_column_reference: bool) -> dict[str, object]:
+    """Temporal x-axis as emitted by normalizeTimeColumn for a physical column."""
+    column: dict[str, object] = {
+        "timeGrain": "P1M",
+        "columnType": "BASE_AXIS",
+        "sqlExpression": "fact_date",
+        "label": "fact_date",
+        "expressionType": "SQL",
+    }
+    if is_column_reference:
+        column["isColumnReference"] = True
+    return column
+
+
+def _mixed_timeseries_query_context(
+    mocker: MockerFixture,
+    *,
+    stored_query_context: str | None,
+    request_is_column_reference: bool,
+    query_b_metrics: list[AdhocMetric] | None = None,
+) -> MagicMock:
+    """Guest payload for a mixed timeseries chart with metrics + metrics_b."""
+    impressions, spend = _mixed_timeseries_metrics()
+    request_axis = _mixed_timeseries_base_axis(
+        is_column_reference=request_is_column_reference
+    )
+    query_b = query_b_metrics if query_b_metrics is not None else [spend]
+
+    query_context = mocker.MagicMock()
+    query_context.slice_.id = 16
+    query_context.slice_.query_context = stored_query_context
+    query_context.slice_.params_dict = {
+        "metrics": [impressions],
+        "metrics_b": [spend],
+        "x_axis": "fact_date",
+        "time_grain_sqla": "P1M",
+        "viz_type": "mixed_timeseries",
+    }
+    query_context.form_data = {
+        "slice_id": 16,
+        "metrics": [impressions],
+        "metrics_b": [spend] if query_b_metrics is None else query_b,
+        "x_axis": "fact_date",
+        "time_grain_sqla": "P1M",
+        "viz_type": "mixed_timeseries",
+    }
+    query_context.queries = [
+        QueryObject(
+            metrics=[impressions],
+            columns=[request_axis],  # type: ignore[list-item]
+            orderby=[(impressions, False)],
+        ),
+        QueryObject(
+            metrics=query_b,
+            columns=[request_axis],  # type: ignore[list-item]
+            orderby=[(query_b[0], False)],
+        ),
+    ]
+    return query_context
+
+
+def test_query_context_modified_mixed_timeseries_guest_payload(
+    mocker: MockerFixture,
+) -> None:
+    """
+    Embedded guests may run the saved mixed timeseries chart.
+
+    Query B metrics live in ``metrics_b`` (not ``metrics``), and the temporal
+    axis is sent as a BASE_AXIS adhoc column with ``isColumnReference`` /
+    ``timeGrain`` even when the chart stored ``x_axis`` as a physical column
+    name. Charts saved before that frontend shape (or with no query_context)
+    must still load.
+
+    Regression for the 6.1 guest check vs later upstream work:
+    apache/superset#42295, #42150 / #42766, #42864, and ``metrics_b`` (not in
+    #42295). Keep this case on version upgrades until upstream covers it.
+    """
+    impressions, spend = _mixed_timeseries_metrics()
+    old_axis = _mixed_timeseries_base_axis(is_column_reference=False)
+    old_query_context = json.dumps(
+        {
+            "queries": [
+                {
+                    "metrics": [impressions],
+                    "columns": [old_axis],
+                    "orderby": [[impressions, False]],
+                },
+                {
+                    "metrics": [spend],
+                    "columns": [old_axis],
+                    "orderby": [[spend, False]],
+                },
+            ]
+        }
+    )
+    stale_query_context = json.dumps(
+        {
+            "queries": [
+                {"metrics": [impressions], "columns": ["fact_date"], "orderby": []},
+                {"metrics": [impressions], "columns": ["fact_date"], "orderby": []},
+            ]
+        }
+    )
+
+    assert not query_context_modified(
+        _mixed_timeseries_query_context(
+            mocker,
+            stored_query_context=None,
+            request_is_column_reference=True,
+        )
+    )
+    assert not query_context_modified(
+        _mixed_timeseries_query_context(
+            mocker,
+            stored_query_context=old_query_context,
+            request_is_column_reference=True,
+        )
+    )
+    assert not query_context_modified(
+        _mixed_timeseries_query_context(
+            mocker,
+            stored_query_context=stale_query_context,
+            request_is_column_reference=True,
+        )
+    )
+
+
+def test_query_context_modified_mixed_timeseries_tampered(
+    mocker: MockerFixture,
+) -> None:
+    """Guest cannot replace a mixed-chart metric_b with a novel expression."""
+    tampered: AdhocMetric = {
+        "aggregate": "",
+        "column": None,
+        "expressionType": "SQL",
+        "hasCustomLabel": False,
+        "label": "COUNT(*) + 2",
+        "sqlExpression": "COUNT(*) + 2",
+    }
+    query_context = _mixed_timeseries_query_context(
+        mocker,
+        stored_query_context=None,
+        request_is_column_reference=True,
+        query_b_metrics=[tampered],
+    )
+    assert query_context_modified(query_context)
+
+
+def test_query_context_modified_mixed_timeseries_tampered_column(
+    mocker: MockerFixture,
+) -> None:
+    """Guest cannot swap the mixed-chart x-axis for a column the chart did not save."""
+    impressions, spend = _mixed_timeseries_metrics()
+    novel_axis = {
+        "timeGrain": "P1M",
+        "columnType": "BASE_AXIS",
+        "sqlExpression": "other_date",
+        "label": "other_date",
+        "expressionType": "SQL",
+        "isColumnReference": True,
+    }
+    query_context = _mixed_timeseries_query_context(
+        mocker,
+        stored_query_context=None,
+        request_is_column_reference=True,
+    )
+    query_context.queries = [
+        QueryObject(
+            metrics=[impressions],
+            columns=[novel_axis],  # type: ignore[list-item]
+            orderby=[(impressions, False)],
+        ),
+        QueryObject(
+            metrics=[spend],
+            columns=[novel_axis],  # type: ignore[list-item]
+            orderby=[(spend, False)],
+        ),
+    ]
+    assert query_context_modified(query_context)
 
 
 def test_query_context_modified_sankey_tampered(mocker: MockerFixture) -> None:
