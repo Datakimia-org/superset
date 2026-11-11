@@ -164,6 +164,19 @@ RUN mkdir -p \
       requirements \
     && touch superset/static/version_info.json
 
+# Some debian libs
+# [DK] libatomic1: required by Playwright's bundled Node driver (libatomic.so.1)
+RUN /app/docker/apt-install.sh \
+      curl \
+      libatomic1 \
+      libsasl2-dev \
+      libsasl2-modules-gssapi-mit \
+      libpq-dev \
+      libecpg-dev \
+      libldap2-dev \
+      postgresql-client \
+      procps
+
 # Install Playwright and optionally setup headless browsers
 ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright-browsers
 
@@ -198,17 +211,6 @@ COPY scripts/check-env.py scripts/
 
 # keeping for backward compatibility
 COPY --chmod=755 ./docker/entrypoints/run-server.sh /usr/bin/
-
-# Some debian libs
-RUN /app/docker/apt-install.sh \
-      curl \
-      libsasl2-dev \
-      libsasl2-modules-gssapi-mit \
-      libpq-dev \
-      libecpg-dev \
-      libldap2-dev \
-      postgresql-client \
-      procps
 
 # Create data directory for DuckDB examples database
 # The database file will be created at runtime when examples are loaded from Parquet files
