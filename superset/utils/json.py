@@ -19,7 +19,7 @@ import decimal
 import logging
 import uuid
 from datetime import date, datetime, time, timedelta
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Dict, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -69,7 +69,7 @@ def format_timedelta(time_delta: timedelta) -> str:
     return str(time_delta)
 
 
-def base_json_conv(obj: Any) -> Any:
+def base_json_conv(obj: Any) -> Any:  # noqa: C901
     """
     Tries to convert additional types to JSON compatible forms.
 
@@ -95,6 +95,9 @@ def base_json_conv(obj: Any) -> Any:
         return str(obj)
     if isinstance(obj, timedelta):
         return format_timedelta(obj)
+    if isinstance(obj, pd.DateOffset):
+        offset_attrs = ", ".join(f"{k}={v}" for k, v in obj.kwds.items())
+        return f"DateOffset({offset_attrs})"
     if isinstance(obj, bytes):
         try:
             return obj.decode("utf-8")
@@ -190,6 +193,7 @@ def dumps(  # pylint: disable=too-many-arguments
     indent: Union[str, int, None] = None,
     separators: Union[tuple[str, str], None] = None,
     cls: Union[type[simplejson.JSONEncoder], None] = None,
+    encoding: Optional[str] = "utf-8",
 ) -> str:
     """
     Dumps object to compatible JSON format
@@ -206,29 +210,21 @@ def dumps(  # pylint: disable=too-many-arguments
     """
 
     results_string = ""
+    dumps_kwargs: Dict[str, Any] = {
+        "default": default,
+        "allow_nan": allow_nan,
+        "ignore_nan": ignore_nan,
+        "sort_keys": sort_keys,
+        "indent": indent,
+        "separators": separators,
+        "cls": cls,
+        "encoding": encoding,
+    }
     try:
-        results_string = simplejson.dumps(
-            obj,
-            default=default,
-            allow_nan=allow_nan,
-            ignore_nan=ignore_nan,
-            sort_keys=sort_keys,
-            indent=indent,
-            separators=separators,
-            cls=cls,
-        )
+        results_string = simplejson.dumps(obj, **dumps_kwargs)
     except UnicodeDecodeError:
-        results_string = simplejson.dumps(
-            obj,
-            default=default,
-            allow_nan=allow_nan,
-            ignore_nan=ignore_nan,
-            sort_keys=sort_keys,
-            indent=indent,
-            separators=separators,
-            cls=cls,
-            encoding=None,
-        )
+        dumps_kwargs["encoding"] = None
+        results_string = simplejson.dumps(obj, **dumps_kwargs)
     return results_string
 
 
@@ -306,3 +302,46 @@ def reveal_sensitive(
                 match.context.value[match.path.fields[0]] = old_value[0].value
 
     return revealed_payload
+
+
+def get_masked_fields(
+    payload: dict[str, Any],
+    sensitive_fields: set[str],
+) -> list[str]:
+    """
+    Returns masked fields in JSON config.
+
+    :param payload: The payload to check
+    :param sensitive_fields: The set of fields to check, as JSONPath expressions
+    :returns: List of JSONPath expressions for fields that are masked
+    """
+    masked = []
+    for json_path in sensitive_fields:
+        jsonpath_expr = parse(json_path)
+        for match in jsonpath_expr.find(payload):
+            if match.value == PASSWORD_MASK:
+                # Using `match.full_path` instead of json_path to account
+                # for wildcards
+                masked.append(f"$.{match.full_path}")
+    return masked
+
+
+def set_masked_fields(
+    payload: dict[str, Any],
+    path_values: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Sets values at JSONPath locations in a payload.
+
+    :param payload: The payload to modify
+    :param path_values: A dict mapping JSONPath expressions to values
+    :returns: The modified payload (copy)
+    """
+    result = copy.deepcopy(payload)
+
+    for json_path, value in path_values.items():
+        jsonpath_expr = parse(json_path)
+        for match in jsonpath_expr.find(result):
+            match.context.value[match.path.fields[0]] = value
+
+    return result

@@ -1,19 +1,23 @@
 import { useState, useEffect } from 'react';
-import moment, { Moment } from 'moment';
+import { Dayjs } from 'dayjs';
 import {
-  styled,
-  t,
   fetchTimeRange,
   NO_TIME_RANGE,
-  useTheme,
   useCSSTextTruncation,
 } from '@superset-ui/core';
-import { RangePicker } from 'src/components/DatePicker';
-import Button from 'src/components/Button';
+import { extendedDayjs } from '@superset-ui/core/utils/dates';
+import { styled, useTheme } from '@apache-superset/core/theme';
+import { t } from '@apache-superset/core/translation';
+import {
+  Button,
+  RangePicker,
+  Tooltip,
+  type RangePickerProps,
+} from '@superset-ui/core/components';
 import ControlPopover from 'src/explore/components/controls/ControlPopover/ControlPopover';
 import { DateLabel } from 'src/explore/components/controls/DateFilterControl/components';
-import { Tooltip } from 'src/components/Tooltip';
-import Icons from 'src/components/Icons';
+import { DAYJS_FORMAT } from 'src/explore/components/controls/DateFilterControl/utils';
+import { Icons } from '@superset-ui/core/components/Icons';
 import {
   CALENDAR_DATE_PICKER_PRESETS,
   getCalendarPresetLabel,
@@ -31,8 +35,6 @@ export interface CalendarDatePickerProps {
   isOverflowingFilterBar?: boolean;
 }
 
-const MOMENT_FORMAT = 'YYYY-MM-DD[T]HH:mm:ss';
-
 const PopoverContainer = styled.div`
   display: flex;
   flex-direction: column;
@@ -48,7 +50,7 @@ const PopoverContainer = styled.div`
     display: flex;
     flex-direction: column;
     gap: 8px;
-    border-right: 1px solid ${({ theme }) => theme.colors.grayscale.light2};
+    border-right: 1px solid ${({ theme }) => theme.colorBorderSecondary};
     padding-right: 16px;
     min-width: 150px;
   }
@@ -63,7 +65,7 @@ const PopoverContainer = styled.div`
   .footer {
     text-align: right;
     padding-top: 16px;
-    border-top: 1px solid ${({ theme }) => theme.colors.grayscale.light2};
+    border-top: 1px solid ${({ theme }) => theme.colorBorderSecondary};
   }
 
   .preset-btn {
@@ -72,21 +74,28 @@ const PopoverContainer = styled.div`
     border: none;
     cursor: pointer;
     padding: 6px 12px;
-    border-radius: 4px;
-    color: ${({ theme }) => theme.colors.grayscale.dark1};
-    font-size: ${({ theme }) => theme.typography.sizes.s}px;
+    border-radius: ${({ theme }) => theme.borderRadius}px;
+    color: ${({ theme }) => theme.colorText};
+    font-size: ${({ theme }) => theme.fontSizeSM}px;
     transition: background 0.2s;
 
     &:hover {
-      background: ${({ theme }) => theme.colors.grayscale.light4};
+      background: ${({ theme }) => theme.colorFillSecondary};
     }
     &.active {
-      background: ${({ theme }) => theme.colors.primary.light4};
-      color: ${({ theme }) => theme.colors.primary.dark1};
-      font-weight: ${({ theme }) => theme.typography.weights.bold};
+      background: ${({ theme }) => theme.colorPrimaryBg};
+      color: ${({ theme }) => theme.colorPrimary};
+      font-weight: ${({ theme }) => theme.fontWeightStrong};
     }
   }
 `;
+
+/** Calendar day from UTC date parts, so the picker does not shift across timezones. */
+function utcPartsToLocalDay(utcDate: Dayjs): Dayjs {
+  return extendedDayjs(
+    new Date(utcDate.year(), utcDate.month(), utcDate.date()),
+  );
+}
 
 export default function CalendarDatePicker({
   value,
@@ -133,38 +142,31 @@ export default function CalendarDatePicker({
 
   // Determine if tempValue is a custom range
   const isCustom = tempValue.includes(' : ');
-  let customDates: [Moment, Moment] | null = getPresetDates(tempValue);
+  let customDates: [Dayjs, Dayjs] | null = getPresetDates(tempValue);
   if (isCustom) {
     const parts = tempValue.split(' : ');
     if (parts.length === 2) {
-      const startUtc = moment.utc(parts[0]);
-      const untilUtc = moment.utc(parts[1]);
+      const startUtc = extendedDayjs.utc(parts[0]);
+      const untilUtc = extendedDayjs.utc(parts[1]);
       if (startUtc.isValid() && untilUtc.isValid()) {
-        const start = moment([
-          startUtc.year(),
-          startUtc.month(),
-          startUtc.date(),
-        ]);
+        const start = utcPartsToLocalDay(startUtc);
         let endUtc = untilUtc;
         if (parts[1].endsWith('T00:00:00')) {
-          endUtc = untilUtc.clone().subtract(1, 'day');
+          endUtc = untilUtc.subtract(1, 'day');
         } else if (parts[1].endsWith('T23:59:59')) {
-          endUtc = untilUtc.clone().startOf('day');
+          endUtc = untilUtc.startOf('day');
         }
-        const end = moment([endUtc.year(), endUtc.month(), endUtc.date()]);
+        const end = utcPartsToLocalDay(endUtc);
         customDates = [start, end];
       }
     }
   }
 
-  const handleCustomChange = (dates: [Moment, Moment] | null) => {
-    if (dates && dates.length === 2) {
-      const start = dates[0].clone().startOf('day').format(MOMENT_FORMAT);
-      const until = dates[1]
-        .clone()
-        .startOf('day')
-        .add(1, 'day')
-        .format(MOMENT_FORMAT);
+  const handleCustomChange: RangePickerProps['onChange'] = dates => {
+    const [startDate, endDate] = dates ?? [];
+    if (startDate && endDate) {
+      const start = startDate.startOf('day').format(DAYJS_FORMAT);
+      const until = endDate.startOf('day').add(1, 'day').format(DAYJS_FORMAT);
       setTempValue(`${start} : ${until}`);
     } else {
       setTempValue(NO_TIME_RANGE);
@@ -192,22 +194,23 @@ export default function CalendarDatePicker({
         <div className="picker">
           <strong>{t('Custom Range')}</strong>
           <RangePicker
-            value={customDates as any}
-            onChange={handleCustomChange as any}
+            // dayjs only. Moment `.add()` mutates, so each cell walks years ahead.
+            value={customDates}
+            onChange={handleCustomChange}
             allowClear={false}
           />
           <div
             style={{
               marginTop: 16,
               fontSize: '12px',
-              color: theme.colors.grayscale.base,
+              color: theme.colorTextSecondary,
             }}
           >
             {t('Selected')}:{' '}
             <strong>
               {tempValue === NO_TIME_RANGE
                 ? t('No filter')
-                : getCalendarPresetLabel(tempValue) ?? tempValue}
+                : (getCalendarPresetLabel(tempValue) ?? tempValue)}
             </strong>
           </div>
         </div>
@@ -242,15 +245,15 @@ export default function CalendarDatePicker({
         <span
           style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center' }}
         >
-          <Icons.EditAlt
-            iconColor={theme.colors.grayscale.base}
+          <Icons.EditOutlined
+            iconColor={theme.colorTextSecondary}
             style={{ marginRight: 8 }}
           />
           {t('Edit time range')}
         </span>
       }
-      visible={show}
-      onVisibleChange={visible => (visible ? handleOpen() : handleClose())}
+      open={show}
+      onOpenChange={open => (open ? handleOpen() : handleClose())}
       getPopupContainer={triggerNode =>
         isOverflowingFilterBar
           ? (triggerNode.parentNode as HTMLElement)

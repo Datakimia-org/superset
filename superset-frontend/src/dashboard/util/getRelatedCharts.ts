@@ -24,33 +24,34 @@ import {
   isAppliedCrossFilterType,
   isAppliedNativeFilterType,
   isNativeFilter,
+  ChartCustomization,
 } from '@superset-ui/core';
-import { Slice } from 'src/types/Chart';
+import type { Slice } from 'src/dashboard/types';
 
 function isGlobalScope(scope: number[], slices: Record<string, Slice>) {
   return scope.length === Object.keys(slices).length;
 }
 
 function getRelatedChartsForSelectFilter(
-  nativeFilter: AppliedNativeFilterType | Filter,
   slices: Record<string, Slice>,
   chartsInScope: number[],
-) {
-  return Object.values(slices)
-    .filter(slice => {
-      const { slice_id } = slice;
-      // all have been selected, always apply
-      if (isGlobalScope(chartsInScope, slices)) return true;
-      // hand-picked in scope, always apply
-      if (chartsInScope.includes(slice_id)) return true;
+): number[] {
+  // all have been selected, always apply
+  if (isGlobalScope(chartsInScope, slices)) {
+    return Object.keys(slices).map(Number);
+  }
 
-      return false;
-    })
-    .map(slice => slice.slice_id);
+  const chartsInScopeSet = new Set(chartsInScope);
+
+  return Object.values(slices).reduce((result: number[], slice) => {
+    if (chartsInScopeSet.has(slice.slice_id)) {
+      result.push(slice.slice_id);
+    }
+    return result;
+  }, []);
 }
 function getRelatedChartsForCrossFilter(
   filterKey: string,
-  crossFilter: AppliedCrossFilterType,
   slices: Record<string, Slice>,
   scope: number[],
 ): number[] {
@@ -58,86 +59,87 @@ function getRelatedChartsForCrossFilter(
 
   if (!sourceSlice) return [];
 
-  return Object.values(slices)
-    .filter(slice => {
-      // cross-filter emitter
-      if (slice.slice_id === Number(filterKey)) return false;
-      // hand-picked in the scope, always apply
-      const fullScope = [
-        ...scope.filter(s => String(s) !== filterKey),
-        Number(filterKey),
-      ];
-      if (isGlobalScope(fullScope, slices)) return true;
-      // hand-picked in the scope, always apply
-      if (scope.includes(slice.slice_id)) return true;
+  const fullScope = [
+    ...scope.filter(s => String(s) !== filterKey),
+    Number(filterKey),
+  ];
+  const scopeSet = new Set(scope);
 
-      return false;
-    })
-    .map(slice => slice.slice_id);
+  return Object.values(slices).reduce((result: number[], slice) => {
+    if (slice.slice_id === Number(filterKey)) {
+      return result;
+    }
+    // Check if it's in the global scope
+    if (isGlobalScope(fullScope, slices)) {
+      result.push(slice.slice_id);
+      return result;
+    }
+    // Check if it's hand-picked in scope
+    if (scopeSet.has(slice.slice_id)) {
+      result.push(slice.slice_id);
+    }
+    return result;
+  }, []);
 }
 
 export function getRelatedCharts(
-  filters: Record<
-    string,
-    AppliedNativeFilterType | AppliedCrossFilterType | Filter
-  >,
-  checkFilters: Record<
-    string,
-    AppliedNativeFilterType | AppliedCrossFilterType | Filter
-  > | null,
+  filterKey: string,
+  filter: AppliedNativeFilterType | AppliedCrossFilterType | Filter,
   slices: Record<string, Slice>,
 ) {
-  const related = Object.entries(filters).reduce((acc, [filterKey, filter]) => {
-    const isCrossFilter =
-      Object.keys(slices).includes(filterKey) &&
-      isAppliedCrossFilterType(filter);
+  let related: number[] = [];
+  const isCrossFilter =
+    Object.keys(slices).includes(filterKey) && isAppliedCrossFilterType(filter);
 
-    const chartsInScope = Array.isArray(filter.scope)
-      ? filter.scope
-      : (filter as Filter).chartsInScope ?? [];
+  const chartsInScope = Array.isArray(filter.scope)
+    ? filter.scope
+    : ((filter as Filter).chartsInScope ?? []);
 
-    if (isCrossFilter) {
-      const checkFilter = checkFilters?.[filterKey] as AppliedCrossFilterType;
-      const crossFilter = filter as AppliedCrossFilterType;
-      const wasRemoved = !!(
-        ((filter.values && filter.values.filters === undefined) ||
-          filter.values?.filters?.length === 0) &&
-        checkFilter?.values?.filters?.length
-      );
-      const actualCrossFilter = wasRemoved ? checkFilter : crossFilter;
+  if (isCrossFilter) {
+    related = getRelatedChartsForCrossFilter(filterKey, slices, chartsInScope);
+  }
 
-      return {
-        ...acc,
-        [filterKey]: getRelatedChartsForCrossFilter(
-          filterKey,
-          actualCrossFilter,
-          slices,
-          chartsInScope,
-        ),
-      };
-    }
-
-    const nativeFilter = filter as AppliedNativeFilterType | Filter;
-    // on highlight, a standard native filter is passed
-    // on apply, an applied native filter is passed
-    if (
-      isAppliedNativeFilterType(nativeFilter) ||
-      isNativeFilter(nativeFilter)
-    ) {
-      return {
-        ...acc,
-        [filterKey]: getRelatedChartsForSelectFilter(
-          nativeFilter,
-          slices,
-          chartsInScope,
-        ),
-      };
-    }
-    return {
-      ...acc,
-      [filterKey]: chartsInScope,
-    };
-  }, {});
+  const nativeFilter = filter as AppliedNativeFilterType | Filter;
+  // on highlight, a standard native filter is passed
+  // on apply, an applied native filter is passed
+  if (
+    !isCrossFilter ||
+    isAppliedNativeFilterType(nativeFilter) ||
+    isNativeFilter(nativeFilter)
+  ) {
+    related = getRelatedChartsForSelectFilter(slices, chartsInScope);
+  }
 
   return related;
+}
+
+export function getRelatedChartsForChartCustomization(
+  customizationItem: ChartCustomization,
+  slices: Record<string, Slice>,
+): number[] {
+  const { chartsInScope, targets } = customizationItem;
+
+  if (Array.isArray(chartsInScope)) {
+    return chartsInScope;
+  }
+
+  const dataset = targets?.[0]?.datasetId;
+
+  if (!dataset) {
+    return [];
+  }
+
+  const targetDatasetId = String(dataset);
+
+  return Object.values(slices)
+    .filter(slice => {
+      const sliceDataset = slice.form_data?.datasource;
+      if (!sliceDataset) return false;
+
+      const sliceDatasetParts = String(sliceDataset).split('__');
+      const sliceDatasetId = sliceDatasetParts[0];
+
+      return sliceDatasetId === targetDatasetId;
+    })
+    .map(slice => slice.slice_id);
 }

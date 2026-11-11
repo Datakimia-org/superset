@@ -17,8 +17,9 @@
  * under the License.
  */
 import { SyntheticEvent } from 'react';
-import { logging, t } from '@superset-ui/core';
-import { Menu } from 'src/components/Menu';
+import { t } from '@apache-superset/core/translation';
+import { logging } from '@apache-superset/core/utils';
+import { Menu } from '@superset-ui/core/components/Menu';
 import downloadAsPdf from 'src/utils/downloadAsPdf';
 import { LOG_ACTIONS_DASHBOARD_DOWNLOAD_AS_PDF } from 'src/logger/LogUtils';
 import { useToasts } from 'src/components/MessageToasts/withToasts';

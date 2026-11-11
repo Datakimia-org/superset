@@ -1,6 +1,6 @@
 # CustomSecurityManager.py
 
-from flask import redirect, g, flash, request, abort
+from flask import redirect, g, flash, request, abort, has_request_context
 from superset.security import SupersetSecurityManager
 from flask_appbuilder.security.views import UserDBModelView,AuthOAuthView
 from flask_appbuilder.security.views import expose
@@ -78,6 +78,17 @@ default_role_pvms = [
 ]
 
 guest_role_pvms = [
+    # 6.1 embedded page calls /api/v1/me/roles/ before rendering the dashboard.
+    ("can_read", "CurrentUserRestApi"),
+    ("can_read", "EmbeddedDashboard"),
+    ("can_read", "Theme"),
+    ("can_read", "CssTemplate"),
+    ("can_read", "DashboardPermalinkRestApi"),
+    ("can_query", "Api"),
+    ("can_query_form_data", "Api"),
+    ("can_get", "Datasource"),
+    ("can_external_metadata", "Datasource"),
+    ("can_write", "DashboardFilterStateRestApi"),
     ("can_read", "SavedQuery"),
     ("can_read", "CSSTemplate"),
     ("can_read", "ReportSchedule"),
@@ -205,7 +216,10 @@ class CustomSsoSecurityManager(SupersetSecurityManager):
             pvm = self.find_permission_view_menu(action, model)
             self.add_permission_role(datakimia_public_role, pvm)   
 
-    # This is a workaround for solving this issue: https://github.com/apache/superset/issues/24837
+    # Workaround for https://github.com/apache/superset/issues/24837
+    # verify_jwt_in_request reads request.method. Celery chart jobs have an
+    # app context and no HTTP request, so skip it there.
     def is_item_public(self, permission_name, view_name):
-        verify_jwt_in_request(optional=True) # Attempt to parse any existing JWT and fail silently
+        if has_request_context():
+            verify_jwt_in_request(optional=True)
         return super().is_item_public(permission_name, view_name) 

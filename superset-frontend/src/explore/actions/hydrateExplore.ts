@@ -27,12 +27,16 @@ import { getChartKey } from 'src/explore/exploreUtils';
 import { getControlsState } from 'src/explore/store';
 import { Dispatch } from 'redux';
 import {
+  Currency,
+  DataMaskStateWithId,
+  JsonObject,
   ensureIsArray,
   getCategoricalSchemeRegistry,
   getColumnLabel,
   getSequentialSchemeRegistry,
   NO_TIME_RANGE,
   QueryFormColumn,
+  VizType,
 } from '@superset-ui/core';
 import {
   getFormDataFromControls,
@@ -56,7 +60,12 @@ export const hydrateExplore =
     dataset,
     metadata,
     saveAction = null,
-  }: ExplorePageInitialData) =>
+    dataMask,
+    chartStates,
+  }: ExplorePageInitialData & {
+    dataMask?: DataMaskStateWithId;
+    chartStates?: Record<number, JsonObject>;
+  }) =>
   (dispatch: Dispatch, getState: () => ExplorePageState) => {
     const { user, datasources, charts, sliceEntities, common, explore } =
       getState();
@@ -67,7 +76,7 @@ export const hydrateExplore =
     const initialSlice = slice ?? fallbackSlice;
     const initialFormData = form_data ?? initialSlice?.form_data;
     if (!initialFormData.viz_type) {
-      const defaultVizType = common?.conf.DEFAULT_VIZ_TYPE || 'table';
+      const defaultVizType = common?.conf.DEFAULT_VIZ_TYPE || VizType.Table;
       initialFormData.viz_type =
         getUrlParam(URL_PARAMS.vizType) || defaultVizType;
     }
@@ -96,6 +105,14 @@ export const hydrateExplore =
     }
 
     const initialDatasource = dataset;
+    initialDatasource.currency_formats = Object.fromEntries(
+      (initialDatasource.metrics ?? [])
+        .filter(metric => !!metric.currency)
+        .map((metric): [string, Currency] => [
+          metric.metric_name,
+          metric.currency!,
+        ]),
+    );
 
     const initialExploreState = {
       form_data: initialFormData,
@@ -183,7 +200,7 @@ export const hydrateExplore =
       sliceFormData,
       queryController: null,
       queriesResponse: null,
-      triggerQuery: false,
+      triggerQuery: !!saveAction,
       lastRendered: 0,
     };
 
@@ -203,12 +220,13 @@ export const hydrateExplore =
           saveModalAlert: null,
           isVisible: false,
         },
-        explore: exploreState,
+        explore: { ...exploreState, chartStates },
+        dataMask,
       },
     });
   };
 
 export type HydrateExplore = {
   type: typeof HYDRATE_EXPLORE;
-  data: ExplorePageState;
+  data: ExplorePageState & { dataMask?: DataMaskStateWithId };
 };

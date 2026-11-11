@@ -16,17 +16,21 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+import { t } from '@apache-superset/core/translation';
 import {
-  GenericDataType,
-  t,
   validateInteger,
   validateNonEmpty,
+  withLabel,
 } from '@superset-ui/core';
+import { GenericDataType } from '@apache-superset/core/common';
 import {
   ControlPanelConfig,
   formatSelectOptionsForRange,
   dndGroupByControl,
   columnsByType,
+  D3_FORMAT_OPTIONS,
+  D3_FORMAT_DOCS,
+  D3_NUMBER_FORMAT_DESCRIPTION_VALUES_TEXT,
 } from '@superset-ui/chart-controls';
 import { showLegendControl, showValueControl } from '../controls';
 
@@ -66,7 +70,7 @@ const config: ControlPanelConfig = {
               default: 5,
               choices: formatSelectOptionsForRange(5, 20, 5),
               description: t('The number of bins for the histogram'),
-              validators: [validateInteger],
+              validators: [withLabel(validateInteger, t('Bins'))],
             },
           },
         ],
@@ -119,6 +123,35 @@ const config: ControlPanelConfig = {
               label: t('X Axis Title'),
               renderTrigger: true,
               default: '',
+              description: t('Changing this control takes effect instantly'),
+            },
+          },
+        ],
+        [
+          {
+            name: 'x_axis_format',
+            config: {
+              type: 'SelectControl',
+              freeForm: true,
+              label: t('X Axis Format'),
+              renderTrigger: true,
+              default: 'SMART_NUMBER',
+              choices: D3_FORMAT_OPTIONS,
+              description: `${D3_FORMAT_DOCS} ${D3_NUMBER_FORMAT_DESCRIPTION_VALUES_TEXT}`,
+            },
+          },
+        ],
+        [
+          {
+            name: 'x_axis_format',
+            config: {
+              type: 'SelectControl',
+              freeForm: true,
+              label: t('X Axis Format'),
+              renderTrigger: true,
+              default: 'SMART_NUMBER',
+              choices: D3_FORMAT_OPTIONS,
+              description: `${D3_FORMAT_DOCS} ${D3_NUMBER_FORMAT_DESCRIPTION_VALUES_TEXT}`,
             },
           },
         ],
@@ -130,6 +163,35 @@ const config: ControlPanelConfig = {
               label: t('Y Axis Title'),
               renderTrigger: true,
               default: '',
+              description: t('Changing this control takes effect instantly'),
+            },
+          },
+        ],
+        [
+          {
+            name: 'y_axis_format',
+            config: {
+              type: 'SelectControl',
+              freeForm: true,
+              label: t('Y Axis Format'),
+              renderTrigger: true,
+              default: 'SMART_NUMBER',
+              choices: D3_FORMAT_OPTIONS,
+              description: `${D3_FORMAT_DOCS} ${D3_NUMBER_FORMAT_DESCRIPTION_VALUES_TEXT}`,
+            },
+          },
+        ],
+        [
+          {
+            name: 'y_axis_format',
+            config: {
+              type: 'SelectControl',
+              freeForm: true,
+              label: t('Y Axis Format'),
+              renderTrigger: true,
+              default: 'SMART_NUMBER',
+              choices: D3_FORMAT_OPTIONS,
+              description: `${D3_FORMAT_DOCS} ${D3_NUMBER_FORMAT_DESCRIPTION_VALUES_TEXT}`,
             },
           },
         ],

@@ -18,7 +18,9 @@
  */
 import { SyntheticEvent } from 'react';
 import { kebabCase } from 'lodash';
-import { logging, t, supersetTheme } from '@superset-ui/core';
+import { t } from '@apache-superset/core/translation';
+import { logging } from '@apache-superset/core/utils';
+import { supersetTheme } from '@apache-superset/core/theme';
 import { addWarningToast } from 'src/components/MessageToasts/actions';
 import customDomToPdf from './customDomToPdf';
 
@@ -62,7 +64,7 @@ export default function downloadAsPdf(
       image: { type: 'jpeg', quality: 1 },
       html2canvas: {
         scale: 2,
-        backgroundColor: supersetTheme.colors.grayscale.light4,
+        backgroundColor: supersetTheme.colorBgLayout,
         useCORS: true,
         allowTaint: true,
         logging: false,

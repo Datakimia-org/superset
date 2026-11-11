@@ -17,7 +17,6 @@
  * under the License.
  */
 import { Suspense, useEffect } from 'react';
-import { hot } from 'react-hot-loader/root';
 import {
   BrowserRouter as Router,
   Switch,
@@ -25,19 +24,21 @@ import {
   useLocation,
 } from 'react-router-dom';
 import { bindActionCreators } from 'redux';
-import { GlobalStyles } from 'src/GlobalStyles';
-import ErrorBoundary from 'src/components/ErrorBoundary';
-import Loading from 'src/components/Loading';
+import { css } from '@apache-superset/core/theme';
+import { Layout, Loading } from '@superset-ui/core/components';
+import { setupAGGridModules } from '@superset-ui/core/components/ThemedAgGridReact';
+import { ErrorBoundary } from 'src/components';
 import Menu from 'src/features/home/Menu';
-import getBootstrapData from 'src/utils/getBootstrapData';
+import getBootstrapData, { applicationRoot } from 'src/utils/getBootstrapData';
 import ToastContainer from 'src/components/MessageToasts/ToastContainer';
 import setupApp from 'src/setup/setupApp';
 import setupPlugins from 'src/setup/setupPlugins';
 import { routes, isFrontendRoute } from 'src/views/routes';
 import { Logger, LOG_ACTIONS_SPA_NAVIGATION } from 'src/logger/LogUtils';
-import setupExtensions from 'src/setup/setupExtensions';
+import setupCodeOverrides from 'src/setup/setupCodeOverrides';
 import { logEvent } from 'src/logger/actions';
 import { store } from 'src/views/store';
+import ExtensionsStartup from 'src/extensions/ExtensionsStartup';
 import {
   BootstrapData,
   isUserWithPermissionsAndRoles,
@@ -47,7 +48,8 @@ import { ScrollToTop } from './ScrollToTop';
 
 setupApp();
 setupPlugins();
-setupExtensions();
+setupCodeOverrides();
+setupAGGridModules();
 
 const bootstrapData = getBootstrapData();
 
@@ -73,21 +75,15 @@ const LocationPathnameLogger = () => {
 };
 
 function hasOnlyDefaultRole(data: BootstrapData) {
-  // Check if the user exists and has permissions and roles
   if (data.user && isUserWithPermissionsAndRoles(data.user)) {
-    // Extract the roles of the user
-    const userRoles = data.user.roles;
-    // Get an array of role names
-    const roleNames = Object.keys(userRoles);
-    // Return true if there is exactly one role and it is named "Default"
+    const roleNames = Object.keys(data.user.roles);
     return roleNames.length === 1 && roleNames[0] === 'Default';
   }
-  // Return false if the user does not exist or does not have the required structure
   return false;
 }
 
 const closeSession = async () => {
-  await fetch('/logout/', {
+  await fetch(`${applicationRoot()}/logout/`, {
     method: 'GET',
     credentials: 'include',
   });
@@ -95,62 +91,71 @@ const closeSession = async () => {
 
 const App = () => {
   useEffect(() => {
-    const handleWindowOpen = async () => {
+    const notifyOpener = async () => {
+      if (!window.opener) {
+        return;
+      }
+
       try {
-        // Check if the window was opened by another window
-        if (window.opener) {
-          // Verify if the user has only the "Default" role
-          if (hasOnlyDefaultRole(bootstrapData)) {
-            // Send a message to the opener window
-            window.opener.postMessage(
-              {
-                type: 'OAUTH2_SUCCESS',
-                data: {
-                  // Add any additional data to send
-                },
-              },
-              '*',
-            );
-          } else {
-            // Clear all cookies before proceeding
-            await closeSession();
-          }
+        if (hasOnlyDefaultRole(bootstrapData)) {
+          window.opener.postMessage(
+            {
+              type: 'OAUTH2_SUCCESS',
+              data: {},
+            },
+            '*',
+          );
+        } else {
+          await closeSession();
         }
       } catch (error) {
         // eslint-disable-next-line no-console
-        console.error('Error handling guest role:', error);
+        console.error('Error handling OAuth popup:', error);
       }
     };
 
-    // Call the async function
-    handleWindowOpen();
-  }, []); // Empty dependency array means this runs once when component mounts
+    notifyOpener();
+  }, []);
 
   return (
-    <Router>
-      <ScrollToTop />
-      <LocationPathnameLogger />
-      <RootContextProviders>
-        <GlobalStyles />
-        <Menu
-          data={bootstrapData.common.menu_data}
-          isFrontendRoute={isFrontendRoute}
-        />
+  <Router basename={applicationRoot()}>
+    <ScrollToTop />
+    <LocationPathnameLogger />
+    <RootContextProviders>
+      <Menu
+        data={bootstrapData.common.menu_data}
+        isFrontendRoute={isFrontendRoute}
+      />
+      <ExtensionsStartup>
         <Switch>
           {routes.map(({ path, Component, props = {}, Fallback = Loading }) => (
             <Route path={path} key={path}>
               <Suspense fallback={<Fallback />}>
-                <ErrorBoundary>
-                  <Component user={bootstrapData.user} {...props} />
-                </ErrorBoundary>
+                <Layout>
+                  <Layout.Content
+                    css={css`
+                      display: flex;
+                      flex-direction: column;
+                    `}
+                  >
+                    <ErrorBoundary
+                      css={css`
+                        margin: 16px;
+                      `}
+                    >
+                      <Component user={bootstrapData.user} {...props} />
+                    </ErrorBoundary>
+                  </Layout.Content>
+                </Layout>
               </Suspense>
             </Route>
           ))}
         </Switch>
-        <ToastContainer />
-      </RootContextProviders>
-    </Router>
+      </ExtensionsStartup>
+      <ToastContainer />
+    </RootContextProviders>
+  </Router>
   );
 };
 
-export default hot(App);
+export default App;

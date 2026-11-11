@@ -16,15 +16,21 @@
 # under the License.
 from __future__ import annotations
 
+import base64
 import logging
-import json
+from datetime import datetime
+from enum import Enum
 from io import BytesIO
-from typing import TYPE_CHECKING
+from typing import cast, TYPE_CHECKING, TypedDict
 
-from flask import current_app
+from flask import current_app as app
 
-from superset import feature_flag_manager
-from superset.dashboards.permalink.types import DashboardPermalinkState
+from superset import feature_flag_manager, thumbnail_cache
+from superset.exceptions import (
+    ScreenshotCapturedError,
+    ScreenshotImageNotAvailableException,
+)
+from superset.extensions import event_logger
 from superset.utils.hashing import md5_sha_from_dict
 from superset.utils.urls import modify_url_query
 from superset.utils.webdriver import (
@@ -54,17 +60,209 @@ if TYPE_CHECKING:
     from flask_caching import Cache
 
 
+class StatusValues(Enum):
+    PENDING = "Pending"
+    COMPUTING = "Computing"
+    UPDATED = "Updated"
+    ERROR = "Error"
+
+
+class ScreenshotCachePayloadType(TypedDict):
+    image: str | None
+    timestamp: str
+    status: str
+
+
+def get_pending_lock_ttl() -> int:
+    """
+    TTL (seconds) for transient PENDING/COMPUTING entries in THUMBNAIL_CACHE.
+
+    These entries only act as a short-lived "task in flight" lock. They must never
+    inherit THUMBNAIL_CACHE_CONFIG["CACHE_DEFAULT_TIMEOUT"] (≈10 years in our
+    deployments): a worker that dies mid-task would otherwise leave the key stuck.
+    """
+    return max(1, int(app.config.get("THUMBNAIL_PENDING_LOCK_TTL", 300)))
+
+
+def get_error_image_ttl() -> int:
+    """TTL (seconds) for ERROR payloads that carry a diagnostic PNG."""
+    return max(1, int(app.config.get("THUMBNAIL_ERROR_CACHE_TTL", 86400)))
+
+
+class ScreenshotCachePayload:
+    def __init__(
+        self,
+        image: bytes | None = None,
+        status: StatusValues = StatusValues.PENDING,
+        timestamp: str = "",
+    ):
+        self._image = image
+        self._timestamp = timestamp or datetime.now().isoformat()
+        # True only for payloads read back from THUMBNAIL_CACHE. A freshly built
+        # payload (cache miss) must always trigger; a cached fresh PENDING is an
+        # in-flight lock and must not re-enqueue.
+        self._from_cache = False
+        # Keep explicit ERROR even when a diagnostic PNG is attached.
+        if status == StatusValues.ERROR:
+            self.status = StatusValues.ERROR
+        elif image:
+            self.status = StatusValues.UPDATED
+        else:
+            self.status = status
+
+    @classmethod
+    def from_dict(cls, payload: ScreenshotCachePayloadType) -> ScreenshotCachePayload:
+        return cls(
+            image=base64.b64decode(payload["image"]) if payload["image"] else None,
+            status=StatusValues(payload["status"]),
+            timestamp=payload["timestamp"],
+        )
+
+    def to_dict(self) -> ScreenshotCachePayloadType:
+        return {
+            "image": base64.b64encode(self._image).decode("utf-8")
+            if self._image
+            else None,
+            "timestamp": self._timestamp,
+            "status": self.status.value,
+        }
+
+    def update_timestamp(self) -> None:
+        self._timestamp = datetime.now().isoformat()
+
+    def pending(self) -> None:
+        self.update_timestamp()
+        self._image = None
+        self.status = StatusValues.PENDING
+
+    def computing(self) -> None:
+        self.update_timestamp()
+        self._image = None
+        self.status = StatusValues.COMPUTING
+
+    def update(self, image: bytes) -> None:
+        self.update_timestamp()
+        self.status = StatusValues.UPDATED
+        self._image = image
+
+    def error(self, image: bytes | None = None) -> None:
+        self.update_timestamp()
+        self.status = StatusValues.ERROR
+        if image is not None:
+            self._image = image
+
+    def get_image(self) -> BytesIO:
+        if self._image is None:
+            raise ScreenshotImageNotAvailableException()
+        return BytesIO(cast(bytes, self._image))
+
+    def get_timestamp(self) -> str:
+        return self._timestamp
+
+    def get_status(self) -> str:
+        return self.status.value
+
+    def mark_from_cache(self) -> ScreenshotCachePayload:
+        self._from_cache = True
+        return self
+
+    def _age_seconds(self) -> float:
+        try:
+            return (
+                datetime.now() - datetime.fromisoformat(self.get_timestamp())
+            ).total_seconds()
+        except (TypeError, ValueError):
+            # Unparseable timestamp: treat as infinitely old so it never blocks.
+            return float("inf")
+
+    def is_error_cache_ttl_expired(self) -> bool:
+        return self._age_seconds() > get_error_image_ttl()
+
+    def is_computing_stale(self) -> bool:
+        """Check if a COMPUTING status is stale (task likely failed or stuck)."""
+        computing_ttl = app.config["THUMBNAIL_COMPUTE_STALE_TTL"]
+        return self._age_seconds() >= computing_ttl
+
+    def is_pending_stale(self) -> bool:
+        """PENDING older than THUMBNAIL_PENDING_LOCK_TTL: enqueue was lost."""
+        return self._age_seconds() >= get_pending_lock_ttl()
+
+    def is_stale_transient(self) -> bool:
+        """
+        True for entries that must be treated as a cache miss: orphaned
+        PENDING/COMPUTING locks and legacy ERROR stubs without image (written by
+        older builds with the 10y default TTL).
+        """
+        if self.status == StatusValues.PENDING:
+            return self.is_pending_stale()
+        if self.status == StatusValues.COMPUTING:
+            return self.is_computing_stale()
+        if self.status == StatusValues.ERROR:
+            return self._image is None
+        return False
+
+    def is_in_progress(self) -> bool:
+        """A task for this key is queued or running (fresh lock in cache)."""
+        if self.status == StatusValues.PENDING:
+            return self._from_cache and not self.is_pending_stale()
+        if self.status == StatusValues.COMPUTING:
+            return not self.is_computing_stale()
+        return False
+
+    def _needs_compute(self) -> bool:
+        return (
+            self.status in (StatusValues.PENDING, StatusValues.COMPUTING)
+            # ERROR without PNG: retry immediately. ERROR with diagnostic PNG: allow
+            # the UI to serve it until THUMBNAIL_ERROR_CACHE_TTL expires.
+            or (
+                self.status == StatusValues.ERROR
+                and (self._image is None or self.is_error_cache_ttl_expired())
+            )
+            or (self.status == StatusValues.UPDATED and self._image is None)
+        )
+
+    def should_trigger_task(self, force: bool = False) -> bool:
+        """
+        API side: should a new Celery task be enqueued?
+
+        A fresh PENDING/COMPUTING lock means a task is already queued/running, so
+        we do not enqueue duplicates. Stale locks (worker died) re-trigger.
+        """
+        return force or (not self.is_in_progress() and self._needs_compute())
+
+    def should_compute(self, force: bool = False) -> bool:
+        """
+        Worker side: should this task run the screenshot?
+
+        Unlike should_trigger_task, a cached PENDING is the marker written when
+        *this* task was enqueued, so it must not make the worker skip. Only a fresh
+        COMPUTING (another worker is already on it) or a usable image skips.
+        """
+        if force:
+            return True
+        if self.status == StatusValues.COMPUTING and not self.is_computing_stale():
+            return False
+        return self._needs_compute()
+
+
 class BaseScreenshot:
-    driver_type = current_app.config["WEBDRIVER_TYPE"]
+    @property
+    def driver_type(self) -> str:
+        return app.config["WEBDRIVER_TYPE"]
+
+    url: str
+    digest: str | None
+    screenshot: bytes | None
     thumbnail_type: str = ""
     element: str = ""
     window_size: WindowSize = DEFAULT_SCREENSHOT_WINDOW_SIZE
     thumb_size: WindowSize = DEFAULT_SCREENSHOT_THUMBNAIL_SIZE
+    cache: Cache = thumbnail_cache
 
-    def __init__(self, url: str, digest: str):
-        self.digest: str = digest
+    def __init__(self, url: str, digest: str | None):
+        self.digest = digest
         self.url = url
-        self.screenshot: bytes | None = None
+        self.screenshot = None
 
     def driver(self, window_size: WindowSize | None = None) -> WebDriver:
         window_size = window_size or self.window_size
@@ -72,12 +270,18 @@ class BaseScreenshot:
             return WebDriverPlaywright(self.driver_type, window_size)
         return WebDriverSelenium(self.driver_type, window_size)
 
-    def cache_key(
+    def get_screenshot(
+        self, user: User, window_size: WindowSize | None = None
+    ) -> bytes | None:
+        driver = self.driver(window_size)
+        self.screenshot = driver.get_screenshot(self.url, self.element, user)
+        return self.screenshot
+
+    def get_cache_key(
         self,
         window_size: bool | WindowSize | None = None,
         thumb_size: bool | WindowSize | None = None,
     ) -> str:
-        logger.info("******************* About to generate cache key with received window size %s and thumb size %s",window_size, thumb_size)        
         window_size = window_size or self.window_size
         thumb_size = thumb_size or self.thumb_size
         args = {
@@ -87,71 +291,79 @@ class BaseScreenshot:
             "window_size": window_size,
             "thumb_size": thumb_size,
         }
-        logger.info("******************* Generating cache key with args %s",json.dumps(args, indent=2))  
         return md5_sha_from_dict(args)
-
-    def get_screenshot(
-        self, user: User, window_size: WindowSize | None = None
-    ) -> bytes | None:
-        driver = self.driver(window_size)
-        self.screenshot = driver.get_screenshot(self.url, self.element, user)
-        return self.screenshot
-
-    def get(
-        self,
-        user: User = None,
-        cache: Cache = None,
-        thumb_size: WindowSize | None = None,
-    ) -> BytesIO | None:
-        """
-            Get thumbnail screenshot has BytesIO from cache or fetch
-
-        :param user: None to use current user or User Model to login and fetch
-        :param cache: The cache to use
-        :param thumb_size: Override thumbnail site
-        """
-        payload: bytes | None = None
-        cache_key = self.cache_key(self.window_size, thumb_size)
-        if cache:
-            payload = cache.get(cache_key)
-        if not payload:
-            payload = self.compute_and_cache(
-                user=user, thumb_size=thumb_size, cache=cache
-            )
-        else:
-            logger.info("Loaded thumbnail from cache: %s", cache_key)
-        if payload:
-            return BytesIO(payload)
-        return None
 
     def get_from_cache(
         self,
-        cache: Cache,
         window_size: WindowSize | None = None,
         thumb_size: WindowSize | None = None,
-    ) -> BytesIO | None:
-        cache_key = self.cache_key(window_size, thumb_size)
-        return self.get_from_cache_key(cache, cache_key)
+    ) -> ScreenshotCachePayload | None:
+        cache_key = self.get_cache_key(window_size, thumb_size)
+        return self.get_from_cache_key(cache_key)
 
-    @staticmethod
-    def get_from_cache_key(cache: Cache, cache_key: str) -> BytesIO | None:
+    @classmethod
+    def get_from_cache_key(cls, cache_key: str) -> ScreenshotCachePayload | None:
         logger.info("Attempting to get from cache: %s", cache_key)
-        if payload := cache.get(cache_key):
-            return BytesIO(payload)
+        if payload := cls.cache.get(cache_key):
+            # Initially, only bytes were stored. This was changed to store an instance
+            # of ScreenshotCachePayload, but since it can't be serialized in all
+            # backends it was further changed to a dict of attributes.
+            if isinstance(payload, bytes):
+                payload = ScreenshotCachePayload(payload)
+            elif isinstance(payload, ScreenshotCachePayload):
+                pass
+            elif isinstance(payload, dict):
+                payload = cast(ScreenshotCachePayloadType, payload)
+                payload = ScreenshotCachePayload.from_dict(payload)
+            payload = cast(ScreenshotCachePayload, payload).mark_from_cache()
+            if payload.is_stale_transient():
+                # Orphaned lock or legacy stub: treat as a miss and drop it so it
+                # cannot sit in Redis with the long default TTL.
+                logger.info(
+                    "Discarding stale thumbnail entry (status=%s): %s",
+                    payload.get_status(),
+                    cache_key,
+                )
+                cls._discard_cache_key(cache_key)
+                return None
+            return payload
         logger.info("Failed at getting from cache: %s", cache_key)
         return None
 
+    @classmethod
+    def _discard_cache_key(cls, cache_key: str) -> None:
+        try:
+            cls.cache.delete(cache_key)
+        except Exception as ex:  # pylint: disable=broad-except
+            # Never mask the original failure; the short lock TTL is the backstop.
+            logger.warning("Failed deleting thumbnail cache key %s: %s", cache_key, ex)
+
+    @classmethod
+    def _set_transient(cls, cache_key: str, payload: ScreenshotCachePayload) -> None:
+        """Write a PENDING/COMPUTING lock with the short lock TTL."""
+        cls.cache.set(cache_key, payload.to_dict(), timeout=get_pending_lock_ttl())
+
+    def mark_pending(self, cache_key: str) -> ScreenshotCachePayload:
+        """
+        Write the PENDING marker right before enqueueing a Celery task.
+
+        Uses THUMBNAIL_PENDING_LOCK_TTL (never the long image TTL): if the task is
+        lost or the worker is killed, the key self-heals once the lock expires.
+        """
+        payload = ScreenshotCachePayload()
+        self._set_transient(cache_key, payload)
+        return payload
+
     def compute_and_cache(  # pylint: disable=too-many-arguments
         self,
+        force: bool,
         user: User = None,
         window_size: WindowSize | None = None,
         thumb_size: WindowSize | None = None,
-        cache: Cache = None,
-        force: bool = True,
         cache_key: str | None = None,
-    ) -> bytes | None:
+    ) -> None:
         """
-        Fetches the screenshot, computes the thumbnail and caches the result
+        Computes the thumbnail and caches the result
 
         :param user: If no user is given will use the current context
         :param cache: The cache to keep the thumbnail payload
@@ -160,34 +372,90 @@ class BaseScreenshot:
         :param force: Will force the computation even if it's already cached
         :return: Image payload
         """
-        cache_key = cache_key or self.cache_key(window_size, thumb_size)
+        cache_key = cache_key or self.get_cache_key(window_size, thumb_size)
+        cache_payload = self.get_from_cache_key(cache_key) or ScreenshotCachePayload()
+        if not cache_payload.should_compute(force=force):
+            logger.info(
+                "Skipping compute - already processed for thumbnail: %s", cache_key
+            )
+            return
+
         window_size = window_size or self.window_size
         thumb_size = thumb_size or self.thumb_size
-        if not force and cache and cache.get(cache_key):
-            logger.info("Thumb already cached, skipping...")
-            return None
         logger.info("Processing url for thumbnail: %s", cache_key)
-
-        payload = None
-
-        # Assuming all sorts of things can go wrong with Selenium
+        cache_payload.computing()
+        # Short-lived lock; refreshed here so the TTL counts from task start, not
+        # from enqueue time.
+        self._set_transient(cache_key, cache_payload)
+        # Any exit path that does not write a terminal payload (unexpected
+        # exception, Celery SoftTimeLimitExceeded outside the capture block, ...)
+        # removes the lock in `finally`. A hard kill (SIGKILL/OOM/pod eviction)
+        # cannot run `finally`; the lock TTL covers that case.
+        terminal_written = False
         try:
-            payload = self.get_screenshot(user=user, window_size=window_size)
+            image, capture_failed = self._capture(user, window_size, thumb_size)
+
+            if image and not capture_failed:
+                with event_logger.log_context(
+                    f"screenshot.cache.{self.thumbnail_type}"
+                ):
+                    cache_payload.update(image)
+                logger.info("Caching thumbnail: %s", cache_key)
+                # No timeout: keep the long CACHE_DEFAULT_TIMEOUT for good images.
+                self.cache.set(cache_key, cache_payload.to_dict())
+                terminal_written = True
+                logger.info(
+                    "Updated thumbnail cache; Status: %s", cache_payload.get_status()
+                )
+            elif image and capture_failed:
+                # Diagnostic PNG (e.g. Playwright timeout): bounded TTL so it is
+                # served for a while and then regenerated, never kept forever.
+                cache_payload.error(image)
+                self.cache.set(
+                    cache_key, cache_payload.to_dict(), timeout=get_error_image_ttl()
+                )
+                terminal_written = True
+                logger.info("Saved failed thumbnail screenshot for %s", cache_key)
+            else:
+                logger.info(
+                    "Thumbnail generation failed without image; clearing %s",
+                    cache_key,
+                )
+        finally:
+            if not terminal_written:
+                self._discard_cache_key(cache_key)
+
+    def _capture(
+        self,
+        user: User | None,
+        window_size: WindowSize,
+        thumb_size: WindowSize,
+    ) -> tuple[bytes | None, bool]:
+        """Take and resize the screenshot. Returns (image, capture_failed)."""
+        image = None
+        capture_failed = False
+        # Assuming all sorts of things can go wrong with Selenium/Playwright
+        try:
+            logger.info("trying to generate screenshot")
+            with event_logger.log_context(f"screenshot.compute.{self.thumbnail_type}"):
+                image = self.get_screenshot(user=user, window_size=window_size)
+        except ScreenshotCapturedError as ex:
+            logger.warning("Failed at generating thumbnail %s", ex, exc_info=True)
+            image = ex.image
+            capture_failed = True
         except Exception as ex:  # pylint: disable=broad-except
             logger.warning("Failed at generating thumbnail %s", ex, exc_info=True)
-
-        if payload and window_size != thumb_size:
+            capture_failed = True
+        if image and window_size != thumb_size:
             try:
-                payload = self.resize_image(payload, thumb_size=thumb_size)
+                image = self.resize_image(image, thumb_size=thumb_size)
             except Exception as ex:  # pylint: disable=broad-except
                 logger.warning("Failed at resizing thumbnail %s", ex, exc_info=True)
-                payload = None
-
-        if payload:
-            logger.info("Caching thumbnail: %s", cache_key)
-            cache.set(cache_key, payload)
-            logger.info("Done caching thumbnail")
-        return payload
+                if not capture_failed:
+                    # Keep the unresized diagnostic PNG only on capture failure.
+                    capture_failed = True
+                    image = None
+        return image, capture_failed
 
     @classmethod
     def resize_image(
@@ -222,7 +490,7 @@ class ChartScreenshot(BaseScreenshot):
     def __init__(
         self,
         url: str,
-        digest: str,
+        digest: str | None,
         window_size: WindowSize | None = None,
         thumb_size: WindowSize | None = None,
     ):
@@ -243,7 +511,7 @@ class DashboardScreenshot(BaseScreenshot):
     def __init__(
         self,
         url: str,
-        digest: str,
+        digest: str | None,
         window_size: WindowSize | None = None,
         thumb_size: WindowSize | None = None,
     ):
@@ -253,16 +521,15 @@ class DashboardScreenshot(BaseScreenshot):
             url,
             standalone=DashboardStandaloneMode.REPORT.value,
         )
-
         super().__init__(url, digest)
         self.window_size = window_size or DEFAULT_DASHBOARD_WINDOW_SIZE
         self.thumb_size = thumb_size or DEFAULT_DASHBOARD_THUMBNAIL_SIZE
 
-    def cache_key(
+    def get_cache_key(
         self,
         window_size: bool | WindowSize | None = None,
         thumb_size: bool | WindowSize | None = None,
-        dashboard_state: DashboardPermalinkState | None = None,
+        permalink_key: str | None = None,
     ) -> str:
         window_size = window_size or self.window_size
         thumb_size = thumb_size or self.thumb_size
@@ -272,6 +539,6 @@ class DashboardScreenshot(BaseScreenshot):
             "type": "thumb",
             "window_size": window_size,
             "thumb_size": thumb_size,
-            "dashboard_state": dashboard_state,
+            "permalink_key": permalink_key,
         }
         return md5_sha_from_dict(args)

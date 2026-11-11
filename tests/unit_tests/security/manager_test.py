@@ -17,7 +17,9 @@
 
 # pylint: disable=invalid-name, unused-argument, redefined-outer-name
 
-import json
+import json  # noqa: TID251
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from flask_appbuilder.security.sqla.models import Role, User
@@ -32,7 +34,7 @@ from superset.security.manager import (
     query_context_modified,
     SupersetSecurityManager,
 )
-from superset.sql_parse import Table
+from superset.sql.parse import Table
 from superset.superset_typing import AdhocColumn, AdhocMetric
 from superset.utils.core import DatasourceName, override_user
 
@@ -361,7 +363,7 @@ def test_raise_for_access_query_default_schema(
     mocker.patch.object(sm, "can_access_database", return_value=False)
     mocker.patch.object(sm, "get_schema_perm", return_value="[PostgreSQL].[public]")
     mocker.patch.object(sm, "is_guest_user", return_value=False)
-    SqlaTable = mocker.patch("superset.connectors.sqla.models.SqlaTable")
+    SqlaTable = mocker.patch("superset.connectors.sqla.models.SqlaTable")  # noqa: N806
     SqlaTable.query_datasources_by_name.return_value = []
 
     database = mocker.MagicMock()
@@ -417,7 +419,7 @@ def test_raise_for_access_jinja_sql(mocker: MockerFixture, app_context: None) ->
     get_table_access_error_object = mocker.patch.object(
         sm, "get_table_access_error_object"
     )
-    SqlaTable = mocker.patch("superset.connectors.sqla.models.SqlaTable")
+    SqlaTable = mocker.patch("superset.connectors.sqla.models.SqlaTable")  # noqa: N806
     SqlaTable.query_datasources_by_name.return_value = []
 
     database = mocker.MagicMock()
@@ -450,7 +452,7 @@ def test_raise_for_access_chart_for_datasource_permission(
     when the user does not have access to the chart datasource
     """
     sm = SupersetSecurityManager(appbuilder)
-    session = sm.get_session
+    session = sm.session
 
     engine = session.get_bind()
     Slice.metadata.create_all(engine)  # pylint: disable=no-member
@@ -510,7 +512,7 @@ def test_raise_for_access_chart_on_admin(
     from superset.utils.core import override_user
 
     sm = SupersetSecurityManager(appbuilder)
-    session = sm.get_session
+    session = sm.session
 
     engine = session.get_bind()
     Slice.metadata.create_all(engine)  # pylint: disable=no-member
@@ -547,18 +549,35 @@ def test_raise_for_access_chart_owner(
     when the user does not have access to the chart datasource
     """
     sm = SupersetSecurityManager(appbuilder)
-    session = sm.get_session
+    session = sm.session
 
     engine = session.get_bind()
     Slice.metadata.create_all(engine)  # pylint: disable=no-member
 
-    alpha = User(
-        first_name="Alice",
-        last_name="Doe",
-        email="adoe@example.org",
-        username="admin",
-        roles=[Role(name="Alpha")],
-    )
+    # Check if Alpha role already exists
+    alpha_role = session.query(Role).filter_by(name="Alpha").first()
+    if not alpha_role:
+        alpha_role = Role(name="Alpha")
+        session.add(alpha_role)
+        session.commit()
+
+    # Check if user already exists
+    alpha = session.query(User).filter_by(username="test_chart_owner_user").first()
+    if not alpha:
+        alpha = User(
+            first_name="Alice",
+            last_name="Doe",
+            email="adoe@example.org",
+            username="test_chart_owner_user",
+            roles=[alpha_role],
+        )
+        session.add(alpha)
+        session.commit()
+    else:
+        # Ensure the user has the Alpha role
+        if alpha_role not in alpha.roles:
+            alpha.roles.append(alpha_role)
+            session.commit()
 
     slice = Slice(
         id=1,
@@ -693,40 +712,240 @@ def test_query_context_modified_mixed_chart(mocker: MockerFixture) -> None:
     assert not query_context_modified(query_context)
 
 
+def _mixed_timeseries_metrics() -> tuple[AdhocMetric, AdhocMetric]:
+    """Impressions (query A) + Spend (query B), matching mixed_timeseries chart 16."""
+    impressions: AdhocMetric = {
+        "aggregate": "SUM",
+        "column": {"column_name": "impressions", "type": "INT64"},
+        "expressionType": "SIMPLE",
+        "hasCustomLabel": True,
+        "label": "Impressions",
+    }
+    spend: AdhocMetric = {
+        "aggregate": "SUM",
+        "column": {"column_name": "spend", "type": "FLOAT64"},
+        "expressionType": "SIMPLE",
+        "hasCustomLabel": True,
+        "label": "Spend",
+    }
+    return impressions, spend
+
+
+def _mixed_timeseries_base_axis(*, is_column_reference: bool) -> dict[str, object]:
+    """Temporal x-axis as emitted by normalizeTimeColumn for a physical column."""
+    column: dict[str, object] = {
+        "timeGrain": "P1M",
+        "columnType": "BASE_AXIS",
+        "sqlExpression": "fact_date",
+        "label": "fact_date",
+        "expressionType": "SQL",
+    }
+    if is_column_reference:
+        column["isColumnReference"] = True
+    return column
+
+
+def _mixed_timeseries_query_context(
+    mocker: MockerFixture,
+    *,
+    stored_query_context: str | None,
+    request_is_column_reference: bool,
+    query_b_metrics: list[AdhocMetric] | None = None,
+) -> MagicMock:
+    """Guest payload for a mixed timeseries chart with metrics + metrics_b."""
+    impressions, spend = _mixed_timeseries_metrics()
+    request_axis = _mixed_timeseries_base_axis(
+        is_column_reference=request_is_column_reference
+    )
+    query_b = query_b_metrics if query_b_metrics is not None else [spend]
+
+    query_context = mocker.MagicMock()
+    query_context.slice_.id = 16
+    query_context.slice_.query_context = stored_query_context
+    query_context.slice_.params_dict = {
+        "metrics": [impressions],
+        "metrics_b": [spend],
+        "x_axis": "fact_date",
+        "time_grain_sqla": "P1M",
+        "viz_type": "mixed_timeseries",
+    }
+    query_context.form_data = {
+        "slice_id": 16,
+        "metrics": [impressions],
+        "metrics_b": [spend] if query_b_metrics is None else query_b,
+        "x_axis": "fact_date",
+        "time_grain_sqla": "P1M",
+        "viz_type": "mixed_timeseries",
+    }
+    query_context.queries = [
+        QueryObject(
+            metrics=[impressions],
+            columns=[request_axis],  # type: ignore[list-item]
+            orderby=[(impressions, False)],
+        ),
+        QueryObject(
+            metrics=query_b,
+            columns=[request_axis],  # type: ignore[list-item]
+            orderby=[(query_b[0], False)],
+        ),
+    ]
+    return query_context
+
+
+def test_query_context_modified_mixed_timeseries_guest_payload(
+    mocker: MockerFixture,
+) -> None:
+    """
+    Embedded guests may run the saved mixed timeseries chart.
+
+    Query B metrics live in ``metrics_b`` (not ``metrics``), and the temporal
+    axis is sent as a BASE_AXIS adhoc column with ``isColumnReference`` /
+    ``timeGrain`` even when the chart stored ``x_axis`` as a physical column
+    name. Charts saved before that frontend shape (or with no query_context)
+    must still load.
+
+    Regression for the 6.1 guest check vs later upstream work:
+    apache/superset#42295, #42150 / #42766, #42864, and ``metrics_b`` (not in
+    #42295). Keep this case on version upgrades until upstream covers it.
+    """
+    impressions, spend = _mixed_timeseries_metrics()
+    old_axis = _mixed_timeseries_base_axis(is_column_reference=False)
+    old_query_context = json.dumps(
+        {
+            "queries": [
+                {
+                    "metrics": [impressions],
+                    "columns": [old_axis],
+                    "orderby": [[impressions, False]],
+                },
+                {
+                    "metrics": [spend],
+                    "columns": [old_axis],
+                    "orderby": [[spend, False]],
+                },
+            ]
+        }
+    )
+    stale_query_context = json.dumps(
+        {
+            "queries": [
+                {"metrics": [impressions], "columns": ["fact_date"], "orderby": []},
+                {"metrics": [impressions], "columns": ["fact_date"], "orderby": []},
+            ]
+        }
+    )
+
+    assert not query_context_modified(
+        _mixed_timeseries_query_context(
+            mocker,
+            stored_query_context=None,
+            request_is_column_reference=True,
+        )
+    )
+    assert not query_context_modified(
+        _mixed_timeseries_query_context(
+            mocker,
+            stored_query_context=old_query_context,
+            request_is_column_reference=True,
+        )
+    )
+    assert not query_context_modified(
+        _mixed_timeseries_query_context(
+            mocker,
+            stored_query_context=stale_query_context,
+            request_is_column_reference=True,
+        )
+    )
+
+
+def test_query_context_modified_mixed_timeseries_tampered(
+    mocker: MockerFixture,
+) -> None:
+    """Guest cannot replace a mixed-chart metric_b with a novel expression."""
+    tampered: AdhocMetric = {
+        "aggregate": "",
+        "column": None,
+        "expressionType": "SQL",
+        "hasCustomLabel": False,
+        "label": "COUNT(*) + 2",
+        "sqlExpression": "COUNT(*) + 2",
+    }
+    query_context = _mixed_timeseries_query_context(
+        mocker,
+        stored_query_context=None,
+        request_is_column_reference=True,
+        query_b_metrics=[tampered],
+    )
+    assert query_context_modified(query_context)
+
+
+def test_query_context_modified_mixed_timeseries_tampered_column(
+    mocker: MockerFixture,
+) -> None:
+    """Guest cannot swap the mixed-chart x-axis for a column the chart did not save."""
+    impressions, spend = _mixed_timeseries_metrics()
+    novel_axis = {
+        "timeGrain": "P1M",
+        "columnType": "BASE_AXIS",
+        "sqlExpression": "other_date",
+        "label": "other_date",
+        "expressionType": "SQL",
+        "isColumnReference": True,
+    }
+    query_context = _mixed_timeseries_query_context(
+        mocker,
+        stored_query_context=None,
+        request_is_column_reference=True,
+    )
+    query_context.queries = [
+        QueryObject(
+            metrics=[impressions],
+            columns=[novel_axis],  # type: ignore[list-item]
+            orderby=[(impressions, False)],
+        ),
+        QueryObject(
+            metrics=[spend],
+            columns=[novel_axis],  # type: ignore[list-item]
+            orderby=[(spend, False)],
+        ),
+    ]
+    assert query_context_modified(query_context)
+
+
 def test_query_context_modified_sankey_tampered(mocker: MockerFixture) -> None:
     """
     Test the `query_context_modified` function for a sankey chart request.
     """
     query_context = mocker.MagicMock()
     query_context.queries = [
-        {
-            "apply_fetch_values_predicate": False,
-            "columns": ["bot_id", "channel_id"],
-            "extras": {"having": "", "where": ""},
-            "filter": [
+        QueryObject(
+            apply_fetch_values_predicate=False,
+            columns=["bot_id", "channel_id"],
+            extras={"having": "", "where": ""},
+            filter=[
                 {
                     "col": "bot_profile__updated",
                     "op": "TEMPORAL_RANGE",
                     "val": "No filter",
                 }
             ],
-            "from_dttm": None,
-            "granularity": None,
-            "inner_from_dttm": None,
-            "inner_to_dttm": None,
-            "is_rowcount": False,
-            "is_timeseries": False,
-            "metrics": ["count"],
-            "order_desc": True,
-            "orderby": [],
-            "row_limit": 10000,
-            "row_offset": 0,
-            "series_columns": [],
-            "series_limit": 0,
-            "series_limit_metric": None,
-            "time_shift": None,
-            "to_dttm": None,
-        }
+            from_dttm=None,
+            granularity=None,
+            inner_from_dttm=None,
+            inner_to_dttm=None,
+            is_rowcount=False,
+            is_timeseries=False,
+            metrics=["count"],
+            order_desc=True,
+            orderby=[],
+            row_limit=10000,
+            row_offset=0,
+            series_columns=[],
+            series_limit=0,
+            series_limit_metric=None,
+            time_shift=None,
+            to_dttm=None,
+        ),
     ]
     query_context.form_data = {
         "datasource": "12__table",
@@ -750,7 +969,8 @@ def test_query_context_modified_sankey_tampered(mocker: MockerFixture) -> None:
         "dashboards": [11],
         "extra_form_data": {},
         "label_colors": {},
-        "shared_label_colors": {},
+        "shared_label_colors": [],
+        "map_label_colors": {},
         "extra_filters": [],
         "dashboardId": 11,
         "force": False,
@@ -837,6 +1057,195 @@ def test_query_context_modified_sankey_tampered(mocker: MockerFixture) -> None:
     assert not query_context_modified(query_context)
 
 
+def test_query_context_modified_orderby(mocker: MockerFixture) -> None:
+    """
+    Test the `query_context_modified` function when the ORDER BY is modified.
+    """
+    tampered_groupby: AdhocMetric = {
+        "aggregate": "",
+        "column": None,
+        "expressionType": "SQL",
+        "hasCustomLabel": False,
+        "label": "random()",
+        "sqlExpression": "random()",
+    }
+
+    query_context = mocker.MagicMock()
+    query_context.queries = [
+        QueryObject(
+            apply_fetch_values_predicate=False,
+            columns=["gender"],
+            extras={"having": "", "where": ""},
+            filter=[{"col": "ds", "op": "TEMPORAL_RANGE", "val": "No filter"}],
+            from_dttm=None,
+            granularity=None,
+            inner_from_dttm=None,
+            inner_to_dttm=None,
+            is_rowcount=False,
+            is_timeseries=False,
+            metrics=["count"],
+            order_desc=True,
+            orderby=[(tampered_groupby, False)],
+            row_limit=1000,
+            row_offset=0,
+            series_columns=[],
+            series_limit=0,
+            series_limit_metric=tampered_groupby,
+            time_shift=None,
+            to_dttm=None,
+        ),
+    ]
+    query_context.form_data = {
+        "datasource": "2__table",
+        "viz_type": "table",
+        "slice_id": 101,
+        "url_params": {
+            "datasource_id": "2",
+            "datasource_type": "table",
+            "save_action": "saveas",
+            "slice_id": "101",
+        },
+        "query_mode": "aggregate",
+        "groupby": ["gender"],
+        "time_grain_sqla": "P1D",
+        "temporal_columns_lookup": {"ds": True},
+        "metrics": ["count"],
+        "all_columns": [],
+        "percent_metrics": [],
+        "adhoc_filters": [
+            {
+                "clause": "WHERE",
+                "comparator": "No filter",
+                "expressionType": "SIMPLE",
+                "operator": "TEMPORAL_RANGE",
+                "subject": "ds",
+            }
+        ],
+        "timeseries_limit_metric": {
+            "aggregate": None,
+            "column": None,
+            "datasourceWarning": False,
+            "expressionType": "SQL",
+            "hasCustomLabel": False,
+            "label": "random()",
+            "optionName": "metric_3kwbghgzkv9_wz84h9j1p5d",
+            "sqlExpression": "random()",
+        },
+        "order_by_cols": [],
+        "row_limit": 1000,
+        "server_page_length": 10,
+        "order_desc": True,
+        "table_timestamp_format": "smart_date",
+        "allow_render_html": True,
+        "show_cell_bars": True,
+        "color_pn": True,
+        "comparison_color_scheme": "Green",
+        "comparison_type": "values",
+        "extra_form_data": {},
+        "force": False,
+        "result_format": "json",
+        "result_type": "full",
+    }
+    query_context.slice_.id = 101
+    query_context.slice_.params_dict = {
+        "datasource": "2__table",
+        "viz_type": "table",
+        "query_mode": "aggregate",
+        "groupby": ["gender"],
+        "time_grain_sqla": "P1D",
+        "temporal_columns_lookup": {"ds": True},
+        "metrics": ["count"],
+        "all_columns": [],
+        "percent_metrics": [],
+        "adhoc_filters": [
+            {
+                "clause": "WHERE",
+                "subject": "ds",
+                "operator": "TEMPORAL_RANGE",
+                "comparator": "No filter",
+                "expressionType": "SIMPLE",
+            }
+        ],
+        "order_by_cols": [],
+        "row_limit": 1000,
+        "server_page_length": 10,
+        "order_desc": True,
+        "table_timestamp_format": "smart_date",
+        "allow_render_html": True,
+        "show_cell_bars": True,
+        "color_pn": True,
+        "comparison_color_scheme": "Green",
+        "comparison_type": "values",
+        "extra_form_data": {},
+        "dashboards": [],
+    }
+    query_context.slice_.query_context = json.dumps(
+        {
+            "datasource": {"id": 2, "type": "table"},
+            "force": False,
+            "queries": [
+                {
+                    "filters": [
+                        {"col": "ds", "op": "TEMPORAL_RANGE", "val": "No filter"}
+                    ],
+                    "extras": {"having": "", "where": ""},
+                    "applied_time_extras": {},
+                    "columns": ["gender"],
+                    "metrics": ["count"],
+                    "orderby": [],
+                    "annotation_layers": [],
+                    "row_limit": 1000,
+                    "series_limit": 0,
+                    "order_desc": True,
+                    "url_params": {},
+                    "custom_params": {},
+                    "custom_form_data": {},
+                    "post_processing": [],
+                    "time_offsets": [],
+                }
+            ],
+            "form_data": {
+                "datasource": "2__table",
+                "viz_type": "table",
+                "query_mode": "aggregate",
+                "groupby": ["gender"],
+                "time_grain_sqla": "P1D",
+                "temporal_columns_lookup": {"ds": True},
+                "metrics": ["count"],
+                "all_columns": [],
+                "percent_metrics": [],
+                "adhoc_filters": [
+                    {
+                        "clause": "WHERE",
+                        "subject": "ds",
+                        "operator": "TEMPORAL_RANGE",
+                        "comparator": "No filter",
+                        "expressionType": "SIMPLE",
+                    }
+                ],
+                "order_by_cols": [],
+                "row_limit": 1000,
+                "server_page_length": 10,
+                "order_desc": True,
+                "table_timestamp_format": "smart_date",
+                "allow_render_html": True,
+                "show_cell_bars": True,
+                "color_pn": True,
+                "comparison_color_scheme": "Green",
+                "comparison_type": "values",
+                "extra_form_data": {},
+                "dashboards": [],
+                "force": False,
+                "result_format": "json",
+                "result_type": "full",
+            },
+            "result_format": "json",
+            "result_type": "full",
+        }
+    )
+    assert query_context_modified(query_context)
+
+
 def test_get_catalog_perm() -> None:
     """
     Test the `get_catalog_perm` method.
@@ -877,7 +1286,7 @@ def test_raise_for_access_catalog(
         return_value="[PostgreSQL].[db1]",
     )
     mocker.patch.object(sm, "is_guest_user", return_value=False)
-    SqlaTable = mocker.patch("superset.connectors.sqla.models.SqlaTable")
+    SqlaTable = mocker.patch("superset.connectors.sqla.models.SqlaTable")  # noqa: N806
     SqlaTable.query_datasources_by_name.return_value = []
 
     database = mocker.MagicMock()
@@ -979,3 +1388,363 @@ def test_get_catalogs_accessible_by_user_schema_access(
     catalogs = {"catalog1", "catalog2"}
 
     assert sm.get_catalogs_accessible_by_user(database, catalogs) == {"catalog2"}
+
+
+def test_get_rls_filters_uses_table_id_directly(
+    mocker: MockerFixture,
+    app_context: None,
+) -> None:
+    """
+    Test that get_rls_filters() uses table.id directly instead of table.data["id"].
+
+    Accessing table.data triggers the full data property chain including select_star,
+    which requires a live database engine connection. When the DB is unreachable, this
+    causes the entire dashboard GET endpoint to fail with a 500 error.
+
+    This test ensures we use the direct .id attribute and never access .data,
+    preventing regressions that would break dashboard loading when DBs are unavailable.
+    """
+    sm = SupersetSecurityManager(appbuilder)
+
+    # Create a mock table where .data raises an exception if accessed
+    table = mocker.MagicMock()
+    table.id = 42
+    type(table).data = mocker.PropertyMock(
+        side_effect=Exception(
+            "table.data should not be accessed - use table.id directly"
+        )
+    )
+
+    # Mock user context
+    mock_user = mocker.MagicMock()
+    mock_user.roles = [mocker.MagicMock(id=1)]
+    mocker.patch("superset.security.manager.g", user=mock_user)
+    mocker.patch.object(sm, "get_user_roles", return_value=mock_user.roles)
+
+    # Call get_rls_filters - if it accesses table.data, the PropertyMock will raise
+    # If it uses table.id directly (correct behavior), it will complete successfully
+    result = sm.get_rls_filters(table)
+    assert isinstance(result, list)
+
+
+def test_get_rls_filters_returns_cached_result(
+    mocker: MockerFixture,
+    app_context: None,
+) -> None:
+    """
+    Test that get_rls_filters() returns cached results on subsequent calls
+    for the same user and table, avoiding redundant DB queries.
+    """
+    sm = SupersetSecurityManager(appbuilder)
+
+    mock_user = mocker.MagicMock()
+    mock_user.id = 1
+    mock_user.username = "admin"
+    mock_user.roles = [mocker.MagicMock(id=1)]
+    mock_g = SimpleNamespace(user=mock_user)
+    mocker.patch("superset.security.manager.g", new=mock_g)
+    mocker.patch("superset.security.manager.get_username", return_value="admin")
+    mocker.patch.object(sm, "get_user_roles", return_value=mock_user.roles)
+
+    table = mocker.MagicMock()
+    table.id = 42
+
+    # First call populates the cache
+    result1 = sm.get_rls_filters(table)
+
+    # Verify cache was populated keyed by (username, table_id)
+    assert ("admin", 42) in mock_g._rls_filter_cache
+
+    # Replace session query with something that would fail if called
+    mocker.patch.object(
+        sm.session,
+        "query",
+        side_effect=AssertionError("DB should not be queried on cache hit"),
+    )
+
+    # Second call should return cached result without querying DB
+    result2 = sm.get_rls_filters(table)
+    assert result1 == result2
+
+
+def test_prefetch_rls_filters_populates_cache(
+    mocker: MockerFixture,
+    app_context: None,
+) -> None:
+    """
+    Test that prefetch_rls_filters() populates the cache for all provided
+    table_ids, including empty results for tables with no matching filters.
+    """
+    sm = SupersetSecurityManager(appbuilder)
+
+    mock_user = mocker.MagicMock()
+    mock_user.id = 1
+    mock_user.username = "admin"
+    mock_user.roles = [mocker.MagicMock(id=10)]
+    mock_g = SimpleNamespace(user=mock_user)
+    mocker.patch("superset.security.manager.g", new=mock_g)
+    mocker.patch("superset.security.manager.get_username", return_value="admin")
+    mocker.patch.object(sm, "get_user_roles", return_value=mock_user.roles)
+
+    # Mock the batch query to return filters for table 1 but not table 2
+    mock_query = mocker.MagicMock()
+    mock_query.join.return_value = mock_query
+    mock_query.filter.return_value = mock_query
+    mock_query.all.return_value = [
+        (1, 100, "group_a", "id > 0"),  # table_id=1
+        (1, 101, None, "active = 1"),  # table_id=1
+    ]
+    mocker.patch.object(sm.session, "query", return_value=mock_query)
+
+    sm.prefetch_rls_filters([1, 2])
+
+    # Table 1 should have 2 filters with named attribute access
+    cached = mock_g._rls_filter_cache[("admin", 1)]
+    assert len(cached) == 2
+    assert cached[0].id == 100
+    assert cached[0].group_key == "group_a"
+    assert cached[0].clause == "id > 0"
+    assert cached[1].id == 101
+    assert cached[1].group_key is None
+    assert cached[1].clause == "active = 1"
+    # Table 2 should have empty list
+    assert mock_g._rls_filter_cache[("admin", 2)] == []
+
+
+def test_prefetch_rls_filters_skips_cached_ids(
+    mocker: MockerFixture,
+    app_context: None,
+) -> None:
+    """
+    Test that prefetch_rls_filters() skips table_ids already in cache
+    and returns early when all ids are cached.
+    """
+    sm = SupersetSecurityManager(appbuilder)
+
+    mock_user = mocker.MagicMock()
+    mock_user.id = 1
+    mock_user.username = "admin"
+    mock_user.roles = [mocker.MagicMock(id=10)]
+    mock_g = SimpleNamespace(
+        user=mock_user,
+        _rls_filter_cache={("admin", 1): [(100, "group_a", "id > 0")]},
+    )
+    mocker.patch("superset.security.manager.g", new=mock_g)
+    mocker.patch("superset.security.manager.get_username", return_value="admin")
+    mocker.patch.object(sm, "get_user_roles", return_value=mock_user.roles)
+
+    # If it queries the DB, this will fail
+    mocker.patch.object(
+        sm.session,
+        "query",
+        side_effect=AssertionError("DB should not be queried for cached ids"),
+    )
+
+    # All ids already cached -> should return immediately
+    sm.prefetch_rls_filters([1])
+
+
+def test_prefetch_rls_filters_no_user(
+    mocker: MockerFixture,
+    app_context: None,
+) -> None:
+    """
+    Test that prefetch_rls_filters() returns early when no user is present.
+    """
+    sm = SupersetSecurityManager(appbuilder)
+    mocker.patch("superset.security.manager.g", new=SimpleNamespace())
+
+    # Should not attempt any DB queries
+    mocker.patch.object(
+        sm.session,
+        "query",
+        side_effect=AssertionError("DB should not be queried without a user"),
+    )
+    sm.prefetch_rls_filters([1, 2])
+
+
+def test_get_rls_filters_cache_works_for_guest_user(
+    mocker: MockerFixture,
+    app_context: None,
+) -> None:
+    """
+    Test that get_rls_filters() caches results for guest users
+    using the same (username, table_id) cache key as regular users.
+    """
+    sm = SupersetSecurityManager(appbuilder)
+
+    mock_guest = mocker.MagicMock()
+    mock_guest.username = "guest_user"
+    mock_guest.roles = [mocker.MagicMock(id=99)]
+
+    mock_g = SimpleNamespace(user=mock_guest)
+    mocker.patch("superset.security.manager.g", new=mock_g)
+    mocker.patch("superset.security.manager.get_username", return_value="guest_user")
+    mocker.patch.object(sm, "get_user_roles", return_value=mock_guest.roles)
+
+    table = mocker.MagicMock()
+    table.id = 42
+
+    # First call runs the query
+    result1 = sm.get_rls_filters(table)
+
+    # Verify cache was populated with (username, table_id) key
+    assert ("guest_user", 42) in mock_g._rls_filter_cache
+
+    # Replace session query to detect if it's called again
+    mocker.patch.object(
+        sm.session,
+        "query",
+        side_effect=AssertionError("DB should not be queried on cache hit"),
+    )
+
+    # Second call should use cache
+    result2 = sm.get_rls_filters(table)
+    assert result1 == result2
+
+
+def test_prefetch_rls_filters_works_for_guest_user(
+    mocker: MockerFixture,
+    app_context: None,
+) -> None:
+    """
+    Test that prefetch_rls_filters() works for guest users using the
+    same (username, table_id) cache key as regular users.
+    """
+    sm = SupersetSecurityManager(appbuilder)
+
+    mock_guest = mocker.MagicMock()
+    mock_guest.username = "guest_user"
+    mock_guest.roles = [mocker.MagicMock(id=99)]
+
+    mock_g = SimpleNamespace(user=mock_guest)
+    mocker.patch("superset.security.manager.g", new=mock_g)
+    mocker.patch("superset.security.manager.get_username", return_value="guest_user")
+    mocker.patch.object(sm, "get_user_roles", return_value=mock_guest.roles)
+
+    # Mock the batch query returning no filters
+    mock_query = mocker.MagicMock()
+    mock_query.join.return_value = mock_query
+    mock_query.filter.return_value = mock_query
+    mock_query.all.return_value = []
+    mocker.patch.object(sm.session, "query", return_value=mock_query)
+
+    sm.prefetch_rls_filters([10, 20])
+
+    # Cache should be populated with (username, table_id) keys and empty lists
+    assert mock_g._rls_filter_cache[("guest_user", 10)] == []
+    assert mock_g._rls_filter_cache[("guest_user", 20)] == []
+
+
+def test_validate_child_in_parent_multilayer_valid(
+    app_context: None, mocker: MockerFixture
+) -> None:
+    """Test validation succeeds for valid multi-layer child"""
+    sm = SupersetSecurityManager(appbuilder)
+
+    parent_slice = mocker.MagicMock(spec=Slice)
+    parent_slice.params = json.dumps(
+        {"viz_type": "deck_multi", "deck_slices": [1, 2, 3]}
+    )
+
+    # Child 2 is in parent's deck_slices
+    assert sm._validate_child_in_parent_multilayer(
+        child_slice_id=2, parent_slice=parent_slice
+    )
+
+
+def test_validate_child_in_parent_multilayer_invalid_child(
+    app_context: None, mocker: MockerFixture
+) -> None:
+    """Test validation fails for child not in parent config"""
+    sm = SupersetSecurityManager(appbuilder)
+
+    parent_slice = mocker.MagicMock(spec=Slice)
+    parent_slice.params = json.dumps(
+        {"viz_type": "deck_multi", "deck_slices": [1, 2, 3]}
+    )
+
+    # Child 5 is NOT in parent's deck_slices
+    assert not sm._validate_child_in_parent_multilayer(
+        child_slice_id=5, parent_slice=parent_slice
+    )
+
+
+def test_validate_child_in_parent_multilayer_wrong_viz_type(
+    app_context: None, mocker: MockerFixture
+) -> None:
+    """Test validation fails for non-multilayer charts"""
+    sm = SupersetSecurityManager(appbuilder)
+
+    parent_slice = mocker.MagicMock(spec=Slice)
+    parent_slice.params = json.dumps(
+        {
+            "viz_type": "line",  # Not deck_multi
+            "deck_slices": [1, 2, 3],
+        }
+    )
+
+    assert not sm._validate_child_in_parent_multilayer(
+        child_slice_id=2, parent_slice=parent_slice
+    )
+
+
+def test_validate_child_in_parent_multilayer_empty_deck_slices(
+    app_context: None, mocker: MockerFixture
+) -> None:
+    """Test validation fails when deck_slices is empty"""
+    sm = SupersetSecurityManager(appbuilder)
+
+    parent_slice = mocker.MagicMock(spec=Slice)
+    parent_slice.params = json.dumps({"viz_type": "deck_multi", "deck_slices": []})
+
+    assert not sm._validate_child_in_parent_multilayer(
+        child_slice_id=1, parent_slice=parent_slice
+    )
+
+
+def test_validate_child_in_parent_multilayer_no_deck_slices(
+    app_context: None, mocker: MockerFixture
+) -> None:
+    """Test validation fails when deck_slices is missing"""
+    sm = SupersetSecurityManager(appbuilder)
+
+    parent_slice = mocker.MagicMock(spec=Slice)
+    parent_slice.params = json.dumps(
+        {
+            "viz_type": "deck_multi"
+            # No deck_slices key
+        }
+    )
+
+    assert not sm._validate_child_in_parent_multilayer(
+        child_slice_id=1, parent_slice=parent_slice
+    )
+
+
+def test_validate_child_in_parent_multilayer_malformed_json(
+    app_context: None, mocker: MockerFixture
+) -> None:
+    """Test validation fails gracefully with malformed JSON"""
+    sm = SupersetSecurityManager(appbuilder)
+
+    parent_slice = mocker.MagicMock(spec=Slice)
+    parent_slice.params = "not valid json {{"
+
+    assert not sm._validate_child_in_parent_multilayer(
+        child_slice_id=1, parent_slice=parent_slice
+    )
+
+
+def test_validate_child_in_parent_multilayer_null_params(
+    app_context: None, mocker: MockerFixture
+) -> None:
+    """Test validation fails gracefully with null params"""
+    sm = SupersetSecurityManager(appbuilder)
+
+    parent_slice = mocker.MagicMock(spec=Slice)
+    parent_slice.params = None
+
+    assert not sm._validate_child_in_parent_multilayer(
+        child_slice_id=1, parent_slice=parent_slice
+    )
